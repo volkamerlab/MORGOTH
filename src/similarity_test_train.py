@@ -174,6 +174,3 @@ def calculate_silhouette_score(distance_matrix_cluster: pd.DataFrame, distance_m
         max((mean_inter_cluster_dist, mean_intra_cluster_dist))
     return silhouette_score
 
-
-if __name__ == '__main__':
-    main()
