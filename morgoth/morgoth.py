@@ -5,7 +5,7 @@ import numpy as np
 import math
 import time
 import copy
-from multivariate_dt import MultivariateDecisionTree, weighted_class_count
+from morgoth.multivariate_dt import MultivariateDecisionTree, weighted_class_count
 import fireducks.pandas as pd
 from multiprocessing import Pool
 from functools import partial

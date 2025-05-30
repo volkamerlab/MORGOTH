@@ -1,11 +1,10 @@
 import copy
 import json
-from morgoth import MORGOTH
+from morgoth.morgoth import MORGOTH
 import fireducks.pandas as pd
 import sys
 import numpy as np
-from CP_Pipeline.conformal_prediction import *
-
+from morgoth.CP_Pipeline.conformal_prediction import *
 
 
 def read_gene_expression_matrix(gene_expression_matrix_file: str) -> pd.DataFrame:
