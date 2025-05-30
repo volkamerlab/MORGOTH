@@ -2,7 +2,7 @@
     "number_of_trees": 500,
     "samples_per_leaf": 10,
     "number_of_features_per_split": "sqrt",
-    "output_dir": "output/",
+    "output_dir": "<output_dir>",
     "tr_matrix_file": "Example_Data/Training_Irinotecan_scores.txt",
     "te_matrix_file": "Example_Data/Training_Irinotecan_scores.txt",
     "cal_matrix_file": "Example_Data/Calibration_Irinotecan_scores.txt",
