@@ -5,7 +5,7 @@ import fireducks.pandas as pd
 import sys
 import numpy as np
 from CP_Pipeline.conformal_prediction import *
-import parallel_pandas as pp
+
 
 
 def read_gene_expression_matrix(gene_expression_matrix_file: str) -> pd.DataFrame:
@@ -357,7 +357,6 @@ def main(config_filename):
 
     # print(config_filename)
     json_file = open(config_filename)
-    pp.ParallelPandas.initialize(n_cpu=20, split_factor=8, disable_pr_bar=True)
     data = json.load(json_file)
     print(data)
     perform_multi_prediction(data)
