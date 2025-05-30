@@ -6,7 +6,11 @@ import math
 import time
 import copy
 from morgoth.multivariate_dt import MultivariateDecisionTree, weighted_class_count
-import fireducks.pandas as pd
+import sys
+if sys.platform.startswith('linux'):
+    import fireducks.pandas as pd
+else:
+    import pandas as pd
 from multiprocessing import Pool
 from functools import partial
 from morgoth.similarity_test_train import calculate_silhoutte_score_train_test, precompute_correlation_matrix, calculate_silhouette_score
@@ -230,7 +234,7 @@ class MORGOTH:
         self.trees = []
         with Pool() as pool:
             seed_list = []
-            for random_seed in self.random_state.randint(0, 2**32, size=self.number_of_trees_in_forest):
+            for random_seed in self.random_state.randint(0, 2**32 - 1, dtype='int64', size=self.number_of_trees_in_forest):
                 # creates random seeds for all treees
                 seed_list.append(np.random.RandomState(random_seed))
             # parallel built of all trees

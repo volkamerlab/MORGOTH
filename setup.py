@@ -5,7 +5,7 @@ setup(
     version='0.1.0',
     packages=find_packages(),
     install_requires=['pandas', 'numpy',
-                      'scipy', 'scikit-learn', 'multiprocess'],
+                      'scipy', 'scikit-learn', 'multiprocess', 'fireducks; sys_platform=="linux"'],
     author='Lisa-Marie Rolli',
     author_email='lisa-marie.rolli@uni-saarland.de',
     description='Interpretable and reliable multivariate random forest for simultaneous classification and regression',

@@ -1,5 +1,9 @@
 from typing import Union
-import fireducks.pandas as pd
+import sys
+if sys.platform.startswith('linux'):
+    import fireducks.pandas as pd
+else:
+    import pandas as pd
 import copy
 import numpy as np
 from scipy.stats import pearsonr, spearmanr

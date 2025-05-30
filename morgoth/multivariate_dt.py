@@ -1,7 +1,11 @@
 from typing import Union
 import numpy as np
 import math
-import fireducks.pandas as pd
+import sys
+if sys.platform.startswith('linux'):
+    import fireducks.pandas as pd
+else:
+    import pandas as pd
 
 
 def weighted_class_count(class_name: Union[int, str], y_class: list, sample_weights: np.array = None) -> float:

@@ -1,8 +1,11 @@
 import copy
 import json
 from morgoth.morgoth import MORGOTH
-import fireducks.pandas as pd
 import sys
+if sys.platform.startswith('linux'):
+    import fireducks.pandas as pd
+else:
+    import pandas as pd
 import numpy as np
 from morgoth.CP_Pipeline.conformal_prediction import *
 
