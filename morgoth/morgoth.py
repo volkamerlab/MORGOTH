@@ -9,7 +9,7 @@ from morgoth.multivariate_dt import MultivariateDecisionTree, weighted_class_cou
 import fireducks.pandas as pd
 from multiprocessing import Pool
 from functools import partial
-from similarity_test_train import calculate_silhoutte_score_train_test, precompute_correlation_matrix, calculate_silhouette_score
+from morgoth.similarity_test_train import calculate_silhoutte_score_train_test, precompute_correlation_matrix, calculate_silhouette_score
 import re
 
 
@@ -899,7 +899,7 @@ class MORGOTH:
                 output_file_sample.write('node [colorscheme = spectral11]\n')
                 for feature in used_features:
                     output_file_sample.write(
-                        f'{feature.replace("-", "")} [label = "{feature}, avg rank = {round(average_rank_features[feature],2)}", style = filled, color = {color_dict[feature]}]\n')
+                        f'{feature.replace("-", "")} [label = "{feature}, avg rank = {round(average_rank_features[feature], 2)}", style = filled, color = {color_dict[feature]}]\n')
                 for edge in edge_weight_dict.keys():
                     edge_weight = edge_weight_dict[edge]
                     edge = re.sub('[A-z]-[A-z]', string=edge, repl=label_fun)
@@ -928,7 +928,7 @@ class MORGOTH:
             output_file_sample.write('node [colorscheme = spectral11]\n')
             for feature in used_features:
                 output_file_sample.write(
-                    f'{feature.replace("-", "")} [label = "{feature}, avg rank = {round(average_forest_feature_score_dict[feature],2)}", style = filled, color = {color_dict[feature]}]\n')
+                    f'{feature.replace("-", "")} [label = "{feature}, avg rank = {round(average_forest_feature_score_dict[feature], 2)}", style = filled, color = {color_dict[feature]}]\n')
             for edge in forest_edge_weight_dict.keys():
                 edge_weight = forest_edge_weight_dict[edge]
                 edge = re.sub('[A-z]-[A-z]', string=edge, repl=label_fun)
@@ -942,7 +942,7 @@ class MORGOTH:
             output_file_sample.write('node [colorscheme = spectral11]\n')
             for feature in used_features:
                 output_file_sample.write(
-                    f'{feature.replace("-", "")} [label = "{feature}, avg rank = {round(average_forest_feature_score_dict[feature],2)}", style = filled, color = {color_dict[feature]}]\n')
+                    f'{feature.replace("-", "")} [label = "{feature}, avg rank = {round(average_forest_feature_score_dict[feature], 2)}", style = filled, color = {color_dict[feature]}]\n')
             for edge in forest_edge_weight_dict.keys():
                 edge_weight = forest_edge_weight_dict[edge] / len(unique_names)
                 edge = re.sub('[A-z]-[A-z]', string=edge, repl=label_fun)

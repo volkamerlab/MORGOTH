@@ -5,8 +5,8 @@ import numpy as np
 from scipy.stats import pearsonr, spearmanr
 from scipy.spatial.distance import cosine, euclidean
 from multiprocessing import Pool
-from functools import partial
 import pandas
+
 
 def r_hat(x: np.array, y: np.array) -> float:
     '''
@@ -62,7 +62,7 @@ def precompute_correlation_matrix(normalized_train_samples: pd.DataFrame, distan
     '''
     train_samples = normalized_train_samples.transpose()
     if distance_measure == 'pearson' or distance_measure == 'spearman':
-        return train_samples.p_corr(method=distance_measure)
+        return train_samples.corr(method=distance_measure)
     if distance_measure == 'cosine':
         dist_fun = cosine
     elif distance_measure == 'euclidean':
@@ -70,7 +70,7 @@ def precompute_correlation_matrix(normalized_train_samples: pd.DataFrame, distan
     elif distance_measure == 'rank_magnitude':
         dist_fun = rank_magnitude
 
-    return train_samples.p_corr(method=dist_fun)
+    return train_samples.corr(method=dist_fun)
 
 
 def calculate_silhoutte_score_train_test(train_samples: pd.DataFrame, precomputed_similarities: pd.DataFrame, test_sample: np.array, distance_measure: str, precomputed: bool) -> float:
@@ -84,7 +84,7 @@ def calculate_silhoutte_score_train_test(train_samples: pd.DataFrame, precompute
     '''
     if distance_measure == 'pearson' or distance_measure == 'spearman':
         if not precomputed:
-            pcc_similarities_train = train_samples.p_corr(
+            pcc_similarities_train = train_samples.corr(
                 method=distance_measure)
         else:
             pcc_similarities_train = precomputed_similarities
@@ -94,13 +94,15 @@ def calculate_silhoutte_score_train_test(train_samples: pd.DataFrame, precompute
             train_sample_list.append(copy.deepcopy(
                 train_samples.iloc[:, train_sample_id].values))
         if distance_measure == 'pearson':
+            def calculate_pcc(x): return pearsonr(x=x, y=test_sample)
             with Pool() as pool:
                 distance_p_val_list = pool.map(
-                    partial(pearsonr, y=test_sample), train_sample_list)
+                    calculate_pcc, train_sample_list)
         elif distance_measure == 'spearman':
+            def calculate_scc(x): return spearmanr(a=x, b=test_sample)
             with Pool() as pool:
                 distance_p_val_list = pool.map(
-                    partial(spearmanr, b=test_sample), train_sample_list)
+                    calculate_scc, train_sample_list)
         distance_list = []
         for entry in distance_p_val_list:
             distance_list.append(entry[0])
@@ -114,7 +116,7 @@ def calculate_silhoutte_score_train_test(train_samples: pd.DataFrame, precompute
             dist_fun = rank_magnitude
 
         if not precomputed:
-            distances_train = train_samples.p_corr(method=dist_fun)
+            distances_train = train_samples.corr(method=dist_fun)
             # symmetric matrix with 1 at the diagonal => for distances we want 0 at the diagonal,
             # but we do not consider it anyways for the calculation of silhouette score
         else:
@@ -125,13 +127,15 @@ def calculate_silhoutte_score_train_test(train_samples: pd.DataFrame, precompute
             train_sample_list.append(copy.deepcopy(
                 train_samples.iloc[:, train_sample_id].values))
         if distance_measure == 'rank_magnitude':
+            def calculate_dist_fun(x): return dist_fun(x=x, y=test_sample)
             with Pool() as pool:
                 distance_list = pool.map(
-                    partial(dist_fun, y=test_sample), train_sample_list)
+                    calculate_dist_fun, train_sample_list)
         else:
+            def calculate_dist_fun(x): return dist_fun(u=x, v=test_sample)
             with Pool() as pool:
                 distance_list = pool.map(
-                    partial(dist_fun, v=test_sample), train_sample_list)
+                    calculate_dist_fun, train_sample_list)
         distance_matrix_sample_to_cluster = pd.DataFrame(
             data=[np.array(distance_list)], columns=train_samples.columns)
         return calculate_silhouette_score(distance_matrix_cluster=distances_train, distance_matrix_sample_to_cluster=distance_matrix_sample_to_cluster, distance=True)
@@ -173,4 +177,3 @@ def calculate_silhouette_score(distance_matrix_cluster: pd.DataFrame, distance_m
     silhouette_score = (mean_intra_cluster_dist - mean_inter_cluster_dist) / \
         max((mean_inter_cluster_dist, mean_intra_cluster_dist))
     return silhouette_score
-
