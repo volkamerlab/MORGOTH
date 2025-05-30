@@ -1,0 +1,19 @@
+[project]
+name = "morgoth"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Lisa-Marie Rolli", email = "lisa-marie.rolli@uni-saarland.de"},
+    {name = "Lea Eckhart", email = "lea.eckhart@uni-saarland.de"},
+    {name = "Andrea Volkamer", email = "andrea.volkamer@cs.uni-saarland.de"},
+    {name = "Hans-Peter Lenhof", email = "len@bioinf.uni-sb.de"},
+    {name = "Kerstin Lenhof", email = "research@klenhof.de"}
+]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["fireducks", "pandas", "numpy", "scipy", "multiprocessing", "functools"
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
