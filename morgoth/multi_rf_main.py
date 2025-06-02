@@ -7,7 +7,7 @@ if sys.platform.startswith('linux'):
 else:
     import pandas as pd
 import numpy as np
-from morgoth.CP_Pipeline.conformal_prediction import *
+from morgoth.conformal_prediction import *
 
 
 def read_gene_expression_matrix(gene_expression_matrix_file: str) -> pd.DataFrame:
