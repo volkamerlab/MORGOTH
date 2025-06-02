@@ -9,15 +9,15 @@ For issues and questions, please contact Lisa-Marie Rolli (lisa-marie.rolli[at]u
 
 You can install our morgoth package using pip:
 ```
-pip install git+https://github.com/volkamerlab/MORGOTH.git
+pip install morgoth
 ```
 used python3 libraries: fireducks pandas numpy typing math bisect operator copy sklearn time scipy collections multiprocessing functools re
 
 ## Usage
 
-An exemplary use is in the multi_rf_main module, which you can run after downloading the `Example_Data` folder from our GitHub.
+An exemplary use is running our provided main as a module, which you can call after downloading the `Example_Data` folder from our GitHub.
 
 ```
-python3 -m morgoth.multi_rf_main Example_Data/example_Json_config.json
+python3 -m morgoth Example_Data/example_Json_config.json
 ```
 Note that the directory tree should be kept and the path to the output folder should be edited in the file `Example_Data/example_JSON_config.json`. The prediction results for classification will be found in ```<output_dir>/<analysis_name>_ClassificationResultsFile1.txt ``` and the regression results are stored in ```<output_dir>/<analysis_name>_<1-error_rate>_RegressionResultsFile1.txt```. If if the field swap_test_calibration in the config file is set to 'True' there will be one additional file per task, respectively, where the '1' in the file name is replaced by a '2'. If a distance measure is given in the config, ```<output_dir>/<analysis_name>_SilhouetteScoresTrainSamples_<distance>.txt``` and ```<output_dir>/<analysis_name>_SilhouetteScoresTestSamples_<distance>.txt``` will contain the silhouette scores for the training and test samples, respectively. If draw_graph is set to True, the files ```<output_dir>/<analysis_name>_<sample_name>.dot``` contain the sample specific graphs and ```<output_dir>/<analysis_name>__graph_whole_forest.dot``` and  ```<output_dir>/<analysis_name>__graph_average_whole_forest.dot``` contain the graph for the whole test set with either the raw count across all samples as edge weight or averaged by the number of test samples, respectively.
