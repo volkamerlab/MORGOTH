@@ -23,7 +23,7 @@
     "criterion_reg": "mse",
     "output_format": "multioutput",
     "tree_weight": "False",
-    "distance_measure": "pearson",
+    "distance_measure": "",
     "draw_graph": "False",
     "conformal_prediction": "True"
 }
