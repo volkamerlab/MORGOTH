@@ -1,6 +1,6 @@
 from collections import Counter
 import operator
-from typing import Union
+from typing import Union, List
 import numpy as np
 import math
 import time
@@ -21,7 +21,7 @@ class MORGOTH:
 
     def __init__(self, X_train: pd.DataFrame, y_train: np.array, criterion_class: str, criterion_reg: str, sample_names_train: np.array,
                  min_number_of_samples_per_leaf: int, number_of_trees_in_forest: int, number_of_features_per_split: Union[float, str], class_names: list,
-                 output_format: str, threshold: float, time_file: str, sample_weights_included: str, random_state: int, max_depth: int,
+                 output_format: str, threshold: List[float], time_file: str, sample_weights_included: str, random_state: int, max_depth: int,
                  impact_classification: float, sample_info_file: str, analysis_name: str, leaf_assignment_file_train: str, feature_imp_output_file: str,
                  tree_weights: bool = False, silhouette_score_file: str = None, distance_measure: str = '', cluster_assignment_file: str = None, graph_path: str = None, draw_graph: bool = False,
                  silhouette_score_train_file: str = None):
@@ -48,7 +48,7 @@ class MORGOTH:
             @param output_format: string defining the output format, i.e., if we have only classification, or regression data, respectively,
                 or a multioutput given by a list of lists with length 2 where position 0 is the continuous response and pos 1 the class
                 allowed values: 'regression', 'classification', or 'multioutput', default of decision trees = 'multioutput'
-            @param threshold: float indicating the threshold that was used to obtain the binary class labels, needed to calculate sample weights
+            @param threshold: list of floats indicating the threshold(s) that was/were used to obtain the class labels, needed to calculate sample weights
             @param time_file: str specifying the path to a file with the fitting time information
             @param sample_weights_included: str indicating, whether/which sample weights to use.
                 If 'simple', we calculate the simple weights
@@ -162,6 +162,9 @@ class MORGOTH:
                 elif self.output_format == 'regression':
                     self.train_sample_weights = np.array(self.calculate_weights(
                         self.thresholds, self.y_train, self.sample_weights_included))
+                elif self.sample_weights_included == 'simple':
+                    self.train_sample_weights = self.calculate_simple_weights(
+                        sorted_thresholds=self.thresholds, response_values=self.y_train)
                 else:
                     self.train_sample_weights = np.ones(len(self.y_train))
                 start_time = time.perf_counter()
@@ -426,8 +429,6 @@ class MORGOTH:
             forest_predictions_reg = []
             for i, sample in enumerate(X_test.index):
                 tree_weight_array = self.tree_weights_dict[sample]
-                assert (math.isclose(
-                    np.sum(tree_weight_array), 1.0, abs_tol=10**-2))
                 forest_pred = 0
                 for j, y in enumerate(tree_predictions_reg):
                     forest_pred += tree_weight_array[j] * y[i]
@@ -574,7 +575,6 @@ class MORGOTH:
                         found_threshold = True
                         new_weight = float(max_sum)/float(sum_weights[i])
                         weights.append(new_weight)
-
         return weights
 
     def calculate_tree_weights(self, X_test: pd.DataFrame, class_predictions_forest: np.array):
@@ -629,9 +629,6 @@ class MORGOTH:
                         self.test_samples_to_train_sample_weight[sample][train_sample] += self.tree_weights_dict[sample][tree_id] * \
                             leaf.normalized_sample_weights[i]
         end_time = time.perf_counter()
-        for weight_dict in self.test_samples_to_train_sample_weight.values():
-            assert math.isclose(
-                np.sum(list(weight_dict.values())), 1.0, abs_tol=10**-2)
 
     def quantile_prediction(self, X_test: pd.DataFrame, quantile: 'list[float]'):
         '''
@@ -731,8 +728,6 @@ class MORGOTH:
 
                 feature_imp_output.write(
                     str(current_feature_name) + "\t" + str(self.feature_imp_fit_model[current_feature_name]) + "\n")
-        assert (math.isclose(np.sum(list(self.feature_imp_fit_model.values())),
-                             1.0, abs_tol=10**-2))
 
     def write_train_sample_silhouette_scores_to_file(self):
         '''

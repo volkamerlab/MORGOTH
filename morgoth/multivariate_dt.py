@@ -203,7 +203,7 @@ class Split():
 
 class BinaryTreeNode:
 
-    def __init__(self, parent, level: int, is_leaf: bool, X_train: pd.DataFrame, y_train: np.array, sample_weights: np.array = None, sample_names_train: np.array = None):
+    def __init__(self, parent, level: int, is_leaf: bool, X_train: pd.DataFrame, y_train: np.array, sample_weights: np.array = None, sample_names_train: np.array = None, output_format:str = 'multioutput'):
         '''
             constructor of a tree node in a binary decision tree
 
@@ -229,6 +229,7 @@ class BinaryTreeNode:
         self.sample_weights = sample_weights
         self.normalized_sample_weights = None
         self.information_gain_for_split_exists = None
+        self.output_format = output_format
 
     def find_train_sample_leaf(self, sample: pd.DataFrame,) -> np.array:
         '''
@@ -286,9 +287,9 @@ class BinaryTreeNode:
             left, right = split.calculate_left_right(X=self.X_train)
             self.is_leaf = False
             self.left = BinaryTreeNode(parent=self, level=self.level + 1, is_leaf=True, X_train=self.X_train.iloc[left, :].reset_index(
-                drop=True), y_train=self.y_train[left], sample_weights=self.sample_weights[left], sample_names_train=self.sample_names_train[left])
+                drop=True), y_train=self.y_train[left], sample_weights=self.sample_weights[left], sample_names_train=self.sample_names_train[left], output_format=self.output_format)
             self.right = BinaryTreeNode(parent=self, level=self.level + 1, is_leaf=True, X_train=self.X_train.iloc[right, :].reset_index(
-                drop=True), y_train=self.y_train[right], sample_weights=self.sample_weights[right], sample_names_train=self.sample_names_train[right])
+                drop=True), y_train=self.y_train[right], sample_weights=self.sample_weights[right], sample_names_train=self.sample_names_train[right], output_format=self.output_format)
             self.X_train = None
         return self.split
 
@@ -330,24 +331,51 @@ class BinaryTreeNode:
             @param sample: a pandas DataFrame with the sample, column names should correspond to the feature names in the training data
             @return: a list of length 2 containing at pos 0 the prediction for the regression and at pos 1 the prediction for the classification task
         '''
+        
         if self.is_leaf:
-            if not self.already_predicted:
-                self.calculate_normalized_sample_weights()
-                reg = np.sum([weight * self.y_train_reg[i]
-                              for i, weight in enumerate(self.normalized_sample_weights)])
-                majority_class_occurences = 0
-                majority_class = None
-                for class_name in class_names:
-                    occ = weighted_class_count(
-                        class_name=class_name, y_class=self.y_train_class, sample_weights=self.sample_weights)
-                    if occ > majority_class_occurences:
-                        majority_class_occurences = occ
-                        majority_class = class_name
-                self.average = reg
-                self.majority_class = majority_class
-                self.already_predicted = True
+            if self.output_format == 'multioutput':
+                if not self.already_predicted:
+                    self.calculate_normalized_sample_weights()
+                    reg = np.sum([weight * self.y_train_reg[i]
+                                for i, weight in enumerate(self.normalized_sample_weights)])
+                    majority_class_occurences = 0
+                    majority_class = None
+                    for class_name in class_names:
+                        occ = weighted_class_count(
+                            class_name=class_name, y_class=self.y_train_class, sample_weights=self.sample_weights)
+                        if occ > majority_class_occurences:
+                            majority_class_occurences = occ
+                            majority_class = class_name
+                    self.average = reg
+                    self.majority_class = majority_class
+                    self.already_predicted = True
 
-            return [self.average, self.majority_class]
+                return [self.average, self.majority_class]
+            elif self.output_format == 'classification':
+                if not self.already_predicted:
+                    self.calculate_normalized_sample_weights()
+                    
+                    majority_class_occurences = 0
+                    majority_class = None
+                    for class_name in class_names:
+                        occ = weighted_class_count(
+                            class_name=class_name, y_class=self.y_train_class, sample_weights=self.sample_weights)
+                        if occ > majority_class_occurences:
+                            majority_class_occurences = occ
+                            majority_class = class_name
+                    self.majority_class = majority_class
+                    self.already_predicted = True
+
+                return self.majority_class
+            else:
+                if not self.already_predicted:
+                    self.calculate_normalized_sample_weights()
+                    reg = np.sum([weight * self.y_train_reg[i]
+                                for i, weight in enumerate(self.normalized_sample_weights)])
+                    self.average = reg
+                    self.already_predicted = True
+
+                return self.majority_class
         else:
             print('warning: predict called on no leaf node')
 
@@ -559,7 +587,7 @@ class MultivariateDecisionTree:
         self.output_format = output_format
         self.sample_weights = sample_weights
         self.root = BinaryTreeNode(
-            None, level=0, is_leaf=True, X_train=self.X_train, y_train=self.y_train, sample_weights=self.sample_weights, sample_names_train=self.sample_names_train)
+            None, level=0, is_leaf=True, X_train=self.X_train, y_train=self.y_train, sample_weights=self.sample_weights, sample_names_train=self.sample_names_train, output_format=self.output_format)
 
         if not self.output_format == 'multioutput':
             if self.output_format == 'classification':
