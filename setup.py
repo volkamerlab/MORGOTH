@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='morgoth',
-    version='1.2',
+    version='1.3',
     packages=find_packages(),
     install_requires=['pandas', 'numpy',
                       'scipy', 'scikit-learn', 'multiprocess', 'fireducks; sys_platform=="linux"'],

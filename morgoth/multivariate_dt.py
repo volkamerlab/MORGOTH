@@ -221,15 +221,23 @@ class BinaryTreeNode:
         self.is_leaf = is_leaf
         self.X_train = X_train
         self.y_train = y_train
-        split = np.hsplit(self.y_train, 2)
+        self.output_format = output_format
         self.already_predicted = False
-        self.y_train_reg = split[0].flatten()
-        self.y_train_class = split[1].flatten()
+        if self.output_format == 'multioutput':
+            split = np.hsplit(self.y_train, 2)
+            self.y_train_reg = split[0].flatten()
+            self.y_train_class = split[1].flatten()
+        elif self.output_format == 'classification':
+            self.y_train_class = self.y_train
+        else:
+            self.y_train_reg = self.y_train
+            
+            
         self.sample_names_train = sample_names_train
         self.sample_weights = sample_weights
         self.normalized_sample_weights = None
         self.information_gain_for_split_exists = None
-        self.output_format = output_format
+        
 
     def find_train_sample_leaf(self, sample: pd.DataFrame,) -> np.array:
         '''
@@ -399,15 +407,21 @@ class BinaryTreeNode:
         sample_weights = self.sample_weights
         if sample_weights is None:
             print('sample weights are None?')
-        if not root_class_criterion == 0:
-            node_class_criterion = class_criterion_function(
-                class_names=class_names, y_class=self.y_train_class, sample_weights=sample_weights)/root_class_criterion
+        
+        if not self.output_format == 'regression':
+            if not root_class_criterion == 0:
+                node_class_criterion = class_criterion_function(
+                    class_names=class_names, y_class=self.y_train_class, sample_weights=sample_weights)/root_class_criterion
+            else:
+                node_class_criterion = class_criterion_function(
+                    class_names=class_names, y_class=self.y_train_class, sample_weights=sample_weights)
         else:
-            node_class_criterion = class_criterion_function(
-                class_names=class_names, y_class=self.y_train_class, sample_weights=sample_weights)
-        node_reg_criterion = regression_criterion_function(
-            y_reg=self.y_train_reg, sample_weights=sample_weights)/root_reg_criterion
-
+            node_class_criterion  =0 
+        if not self.output_format == 'classification':
+            node_reg_criterion = regression_criterion_function(
+                y_reg=self.y_train_reg, sample_weights=sample_weights)/root_reg_criterion
+        else:
+            node_reg_criterion = 0
         node_score = impact_classification * node_class_criterion + \
             (1-impact_classification) * node_reg_criterion
         best_score = node_score
@@ -469,23 +483,30 @@ class BinaryTreeNode:
             assert math.isclose(left_weight + right_weight,
                                 1.0, abs_tol=10**-2)
 
-            left_class = class_criterion_function(
-                class_names=self.class_names, y_class=self.y_train_class[left], sample_weights=self.sample_weights[left])
+            if not self.output_format == 'regression':
+                left_class = class_criterion_function(
+                    class_names=self.class_names, y_class=self.y_train_class[left], sample_weights=self.sample_weights[left])
 
-            right_class = class_criterion_function(
-                class_names=self.class_names, y_class=self.y_train_class[right], sample_weights=self.sample_weights[right])
-            if root_class_criterion == 0:
-                class_intermediate = 0
+                right_class = class_criterion_function(
+                    class_names=self.class_names, y_class=self.y_train_class[right], sample_weights=self.sample_weights[right])
+                if root_class_criterion == 0:
+                    class_intermediate = 0
+                else:
+                    class_intermediate = (  
+                        left_weight * left_class+right_weight * right_class) / root_class_criterion
             else:
-                class_intermediate = (
-                    left_weight * left_class+right_weight * right_class) / root_class_criterion
-            left_reg = regression_criterion_function(
-                y_reg=self.y_train_reg[left], sample_weights=self.sample_weights[left])
-            right_reg = regression_criterion_function(
-                y_reg=self.y_train_reg[right], sample_weights=self.sample_weights[right])
+                class_intermediate  = 0
+            if not self.output_format == 'classification':
+                left_reg = regression_criterion_function(
+                    y_reg=self.y_train_reg[left], sample_weights=self.sample_weights[left])
+                right_reg = regression_criterion_function(
+                    y_reg=self.y_train_reg[right], sample_weights=self.sample_weights[right])
 
-            reg_intermediate = (left_weight * left_reg +
-                                right_weight * right_reg) / root_reg_criterion
+                reg_intermediate = (left_weight * left_reg +
+                                    right_weight * right_reg) / root_reg_criterion
+            else:
+                reg_intermediate = 0
+                
             act_score = impact_classification * class_intermediate + \
                 (1-impact_classification) * reg_intermediate
 

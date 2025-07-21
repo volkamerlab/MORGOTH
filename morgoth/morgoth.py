@@ -19,7 +19,7 @@ import re
 
 class MORGOTH:
 
-    def __init__(self, X_train: pd.DataFrame, y_train: np.array, criterion_class: str, criterion_reg: str, sample_names_train: np.array,
+    def __init__(self, X_train, y_train: np.array, criterion_class: str, criterion_reg: str, sample_names_train: np.array,
                  min_number_of_samples_per_leaf: int, number_of_trees_in_forest: int, number_of_features_per_split: Union[float, str], class_names: list,
                  output_format: str, threshold: List[float], time_file: str, sample_weights_included: str, random_state: int, max_depth: int,
                  impact_classification: float, sample_info_file: str, analysis_name: str, leaf_assignment_file_train: str, feature_imp_output_file: str,
@@ -81,11 +81,18 @@ class MORGOTH:
         self.original_ytrain = copy.deepcopy(y_train)
         self.original_sample_names_train = copy.deepcopy(sample_names_train)
         self.X_train = X_train.reset_index(drop=True)
-        self.feature_names = self.X_train.columns
+        self.feature_names = np.array(self.X_train.columns)
+
         self.y_train = np.array(y_train)
-        split = np.hsplit(self.y_train, 2)
-        self.y_train_reg = split[0].flatten()
-        self.y_train_class = split[1].flatten()
+        self.output_format = output_format
+        if self.output_format == 'multioutput':
+            split = np.hsplit(self.y_train, 2)
+            self.y_train_reg = split[0].flatten()
+            self.y_train_class = split[1].flatten()
+        elif self.output_format == 'classification':
+            self.y_train_class = y_train
+        else:
+            self.y_train_reg = y_train
         self.criterion_class = criterion_class
         self.criterion_reg = criterion_reg
         self.sample_names_train = np.array(sample_names_train)
@@ -113,7 +120,7 @@ class MORGOTH:
             self.total_number_of_features_per_split = int(
                 number_of_features_per_split*len(self.X_train.columns))
 
-        self.output_format = output_format
+
         self.class_names = class_names
         self.thresholds = threshold
         self.sample_weights_included = sample_weights_included
@@ -151,6 +158,7 @@ class MORGOTH:
             fits the trees in the forest using the given weighting scheme
 
         '''
+
         # decide which model should be fit: with weights or plain
         self.train_sample_weights = []
         if self.sample_weights_included in ["simple", 'linear']:
@@ -163,8 +171,7 @@ class MORGOTH:
                     self.train_sample_weights = np.array(self.calculate_weights(
                         self.thresholds, self.y_train, self.sample_weights_included))
                 elif self.sample_weights_included == 'simple':
-                    self.train_sample_weights = self.calculate_simple_weights(
-                        sorted_thresholds=self.thresholds, response_values=self.y_train)
+                    self.train_sample_weights = self.calculate_simple_weights(sorted_thresholds=self.thresholds, response_values=self.y_train)
                 else:
                     self.train_sample_weights = np.ones(len(self.y_train))
                 start_time = time.perf_counter()
@@ -246,7 +253,7 @@ class MORGOTH:
             for t in results.get():
                 self.trees.append(t[0])
                 seconds.append(t[1])
-            print(f'average time for a tree: {np.mean(seconds)}')
+        print(f'average time for a tree: {np.mean(seconds)}')
         assert (len(self.trees) == self.number_of_trees_in_forest)
         self.trees = np.array(self.trees)
 
