@@ -5,7 +5,7 @@
     "output_dir": "<output_dir>",
     "tr_matrix_file": "../Example_Data/Training_Irinotecan_scores.txt",
     "te_matrix_file": "../Example_Data/Test_Irinotecan_scores.txt",
-    "cal_matrix_file": "/home/lisa-marie-rolli/OneDrive/Research_Doktorarbeit/MORGOTH/Example_Data/Calibration_Irinotecan_scores.txt",
+    "cal_matrix_file": "../Example_Data/Calibration_Irinotecan_scores.txt",
     "ge_matrix_file": "../Example_Data/expression_matrix.txt",
     "cl_matrix_file": "../Example_Data/Irinotecan_Discretized.txt",
     "wanted_genes": "../Example_Data/gene_score_list.txt",
