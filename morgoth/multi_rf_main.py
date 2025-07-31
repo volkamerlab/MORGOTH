@@ -101,7 +101,7 @@ def split_classification_file(training_samples: list, test_samples: list, classi
         return [training_classification_samples, test_classification_samples]
 
 
-def split_gene_expression_matrix(gene_expression_matrix: pd.DataFrame, training_samples: list, calibration_samples: list, test_samples: list):
+def split_gene_expression_matrix(gene_expression_matrix: pd.DataFrame, training_samples: list,  test_samples: list, calibration_samples: list = []):
     '''
         @param gene_expression_matrix: a pandas data frame with the cell line names as index and the gene expression 
         @param training_samples: list of all sample names that are used for training
@@ -114,9 +114,12 @@ def split_gene_expression_matrix(gene_expression_matrix: pd.DataFrame, training_
     '''
     gene_expression_training_matrix = gene_expression_matrix.loc[training_samples, :]
     gene_expression_test_matrix = gene_expression_matrix.loc[test_samples, :]
-    gene_expression_calibration_matrix = gene_expression_matrix.loc[calibration_samples, :]
+    if len(calibration_samples) > 0:
+        gene_expression_calibration_matrix = gene_expression_matrix.loc[calibration_samples, :]
 
-    return [gene_expression_training_matrix, gene_expression_test_matrix, gene_expression_calibration_matrix]
+        return [gene_expression_training_matrix, gene_expression_test_matrix, gene_expression_calibration_matrix]
+    else:
+        return [gene_expression_training_matrix, gene_expression_test_matrix]
 
 
 def generate_epsilon_list(X_train: pd.DataFrame):
@@ -229,8 +232,12 @@ def perform_multi_prediction(json_dict: json.JSONDecoder):
     wanted_feature_names_and_filtered_gene_expression_matrix_dict = filter_gene_expression_features(
         wanted_genes, gene_expression_matrix_data_frame)
     filtered_gene_expression_matrix_dict = wanted_feature_names_and_filtered_gene_expression_matrix_dict
-    gene_expression_training_testing_calibration = split_gene_expression_matrix(
-        gene_expression_matrix=filtered_gene_expression_matrix_dict, training_samples=samples_names_train, test_samples=samples_names_test, calibration_samples=samples_names_calibration)
+    if json_dict['conformal_prediction'] in ['true', 'True']:
+        gene_expression_training_testing_calibration = split_gene_expression_matrix(
+            gene_expression_matrix=filtered_gene_expression_matrix_dict, training_samples=samples_names_train, test_samples=samples_names_test, calibration_samples=samples_names_calibration)
+    else:
+        gene_expression_training_testing_calibration = split_gene_expression_matrix(
+            gene_expression_matrix=filtered_gene_expression_matrix_dict, training_samples=samples_names_train, test_samples=samples_names_test)
 
     X_train = gene_expression_training_testing_calibration[0]
     X_test = gene_expression_training_testing_calibration[1]
