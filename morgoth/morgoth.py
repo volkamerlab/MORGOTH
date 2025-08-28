@@ -101,8 +101,9 @@ class MORGOTH:
         self.number_of_features_per_split = number_of_features_per_split
         self.tree_weights = tree_weights
         self.distance_measure = distance_measure
-        occurence_count = Counter(self.y_train_class)
-        self.majority_class = occurence_count.most_common(1)[0][0]
+        if not self.output_format == 'regression':
+            occurence_count = Counter(self.y_train_class)
+            self.majority_class = occurence_count.most_common(1)[0][0]
         self.draw_graph = draw_graph
         self.graph_path = graph_path
         self.min_weight = 3
