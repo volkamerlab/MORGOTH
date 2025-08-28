@@ -383,7 +383,7 @@ class BinaryTreeNode:
                     self.average = reg
                     self.already_predicted = True
 
-                return self.majority_class
+                return self.average
         else:
             print('warning: predict called on no leaf node')
 
