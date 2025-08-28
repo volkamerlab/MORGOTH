@@ -63,7 +63,7 @@ class MORGOTH:
             @param analysis_name: string indicating the name of the current analysis
             @param leaf_assignment_file_train: path to the file, where the information is stored, in which leaf the training samples ended per tree
             @param feature_imp_output_file: path to the file, where the feature importance scores for all features should be stored
-            @param tree_weights: bool, True if SAURON-RF tree weights should be used, False otherwise
+            @param tree_weights: bool, True if SAURON-RF tree weights should be used, False otherwise. Notably, this can only be True, if output_format is set to 'multioutput'
             @param silhouette_score_file: path to the file, where the silhouette score results for the unseen (test) samples should be stored (only used if distance measure is given)
             @param distance_measure: a string indicating, which distance should be used for the cluster analysis
                 'pearson': 1-PCC
@@ -100,6 +100,9 @@ class MORGOTH:
         self.number_of_trees_in_forest = number_of_trees_in_forest
         self.number_of_features_per_split = number_of_features_per_split
         self.tree_weights = tree_weights
+        if self.tree_weights and not self.output_format == 'multioutput':
+            raise (ValueError(
+                    f'Tree weights cannot be calculated for univariate RF.'))
         self.distance_measure = distance_measure
         if not self.output_format == 'regression':
             occurence_count = Counter(self.y_train_class)
