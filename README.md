@@ -36,7 +36,7 @@ seed = 42
 # change to your input data directory
 input_dir = 'Example_Data/'
 # change to your output data directory
-output_dir = 'Example_Data/'
+output_dir = 'Example_Data/output/'
 # full feature matrix
 X = pd.read_csv(f'{input_dir}/expression_matrix.txt', index_col=0, sep='\t')
 # regression data is split in train and test
@@ -81,7 +81,7 @@ X_test_subset = X.loc[y_reg_test.index, top_100]
 
 # construct morgoth object
 mult_rf = MORGOTH(X_train=X_train_subset, y_train=y_train, sample_names_train=X_train_subset.index,
-                  criterion_class='gini', criterion_reg='mse', min_number_of_samples_per_leaf=10, number_of_trees_in_forest=500, analysis_name='benchmark',
+                  criterion_class='gini', criterion_reg='mse', min_number_of_samples_per_leaf=10, number_of_trees_in_forest=500, analysis_name='example_usage',
                   number_of_features_per_split='sqrt', class_names=[0, 1], output_format='multioutput', threshold=[0.499358], time_file=time_file,
                   sample_weights_included='simple', random_state=seed, max_depth=20, impact_classification=0,
                   sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
@@ -98,4 +98,5 @@ y_pred_class = split[1].flatten()
 
 print(f'MCC: {matthews_corrcoef(y_pred=y_pred_class, y_true=y_binary_test.values)}')
 print(f'R2: {r2_score(y_pred=y_pred_reg, y_true=y_reg_test.values)}')
+
 ```
