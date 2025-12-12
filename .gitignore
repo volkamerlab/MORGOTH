@@ -172,3 +172,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+zenodo_upload*
+GDSC2_Example_Workflow/*
+Example_Data/GDSC2_data_output/*
+Example_Data/GDSC2_data_input/*
