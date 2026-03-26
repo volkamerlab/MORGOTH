@@ -23,8 +23,9 @@ class MORGOTH:
                  min_number_of_samples_per_leaf: int, number_of_trees_in_forest: int, number_of_features_per_split: Union[float, str], class_names: list,
                  output_format: str, threshold: List[float], time_file: str, sample_weights_included: str, random_state: int, max_depth: int,
                  impact_classification: float, sample_info_file: str, analysis_name: str, leaf_assignment_file_train: str, feature_imp_output_file: str,
-                 tree_weights: bool = False, silhouette_score_file: str = None, distance_measure: str = '', cluster_assignment_file: str = None, graph_path: str = None, draw_graph: bool = False,
-                 silhouette_score_train_file: str = None):
+                 tree_weights: str = None, silhouette_score_file: str = None, distance_measure: str = '', cluster_assignment_file: str = None, graph_path: str = None, draw_graph: bool = False,
+                 silhouette_score_train_file: str = None, X_target_train = None, y_target_train: np.array = None, loss_wma_regression:str = 'mae', loss_wma_classification:str = 'sum_incorrect',
+                 beta:float = 0.5, labda_wma:float = 0.5):
         '''
             constructor of MORGOTH
 
@@ -63,7 +64,9 @@ class MORGOTH:
             @param analysis_name: string indicating the name of the current analysis
             @param leaf_assignment_file_train: path to the file, where the information is stored, in which leaf the training samples ended per tree
             @param feature_imp_output_file: path to the file, where the feature importance scores for all features should be stored
-            @param tree_weights: bool, True if SAURON-RF tree weights should be used, False otherwise. Notably, this can only be True, if output_format is set to 'multioutput'
+            @param tree_weights: str, indicates whether and which tree weights should be used; 
+                allowed values: None (all trees are weighted equally), 'sauron': SAURON-RF tree weights, and 'wma': wma style tree weights for transfer learnign; 
+                Notably, this can only be 'sauron', if output_format is set to 'multioutput' and if ste to 'wma', a fine tune data set must be provided (cf. X_target_train and y_target_train)
             @param silhouette_score_file: path to the file, where the silhouette score results for the unseen (test) samples should be stored (only used if distance measure is given)
             @param distance_measure: a string indicating, which distance should be used for the cluster analysis
                 'pearson': 1-PCC
@@ -76,6 +79,13 @@ class MORGOTH:
             @param graph_path: path to the folder where the graphs should be stored (only used if draw_graph is True)
             @param draw_graph: bool indicating whether the RF graphs should be generated (True) or not (False)
             @param silhouette_score_train_file: path to the file, where the silhouette score results for the training samples should be stored (only used if distance measure is given)
+            @param X_target_train: features for the training part of the target data set for fine tuning. Only needed if at least one of the fine tuning options is chosen (cf. tree_weights)
+            @param y_target_train: response for the training part of the target data set for fine tuning. Only needed if at least one of the fine tuning options is chosen see above
+            @param loss_wma_regression: str, indicating the regression loss function that should be used for the WMA style weights, only needed if tree_weights is set to 'wma'
+            @param loss_wma_classification: str, indicating the classification loss function that should be used for the WMA style weights, only needed if tree_weights is set to 'wma'
+            @param beta: float between (0,1) needed for the wma weights, which will be beta**loss. Thus, the closer it is to one the closer it is to weighting all trees equally. Default = 0.5
+            @param labda_wma: float in [0,1], defining how much impact the classification loss should have for the wma weights. Thus, only needed if tree_weights = 'wma' and output_format = 'multioutput'.
+                The impact of the regression function is 1-impact_classification. Default = 0.5. 
         '''
         self.original_Xtrain = copy.deepcopy(X_train)
         self.original_ytrain = copy.deepcopy(y_train)
@@ -83,16 +93,26 @@ class MORGOTH:
         self.X_train = X_train.reset_index(drop=True)
         self.feature_names = np.array(self.X_train.columns)
 
+        self.X_target_train = copy.deepcopy(X_target_train)
+        self.y_target_train = np.array(y_target_train)
+
+
         self.y_train = np.array(y_train)
         self.output_format = output_format
         if self.output_format == 'multioutput':
             split = np.hsplit(self.y_train, 2)
             self.y_train_reg = split[0].flatten()
             self.y_train_class = split[1].flatten()
+            split_target = np.hsplit(self.y_target_train, 2)
+            self.y_train_target_reg = split_target[0].flatten()
+            self.y_train_target_class = split_target[1].flatten()
         elif self.output_format == 'classification':
             self.y_train_class = y_train
+            self.y_train_target_class = y_target_train
         else:
             self.y_train_reg = y_train
+            self.y_train_target_reg = y_target_train
+
         self.criterion_class = criterion_class
         self.criterion_reg = criterion_reg
         self.sample_names_train = np.array(sample_names_train)
@@ -100,9 +120,15 @@ class MORGOTH:
         self.number_of_trees_in_forest = number_of_trees_in_forest
         self.number_of_features_per_split = number_of_features_per_split
         self.tree_weights = tree_weights
-        if self.tree_weights and not self.output_format == 'multioutput':
+        if self.tree_weights == 'sauron' and not self.output_format == 'multioutput':
             raise (ValueError(
-                    f'Tree weights cannot be calculated for univariate RF.'))
+                    f'SAURON Tree weights cannot be calculated for univariate RF.'))
+        elif self.tree_weights == 'wma' and ((X_target_train is None) or (y_target_train is None)):
+            
+            raise (ValueError(
+                    f'WMA style Tree weights cannot be calculated without providing fine tune data RF.'))
+        self.loss_wma_classification = loss_wma_classification
+        self.loss_wma_regression = loss_wma_regression
         self.distance_measure = distance_measure
         if not self.output_format == 'regression':
             occurence_count = Counter(self.y_train_class)
@@ -588,17 +614,10 @@ class MORGOTH:
                         weights.append(new_weight)
         return weights
 
-    def calculate_tree_weights(self, X_test: pd.DataFrame, class_predictions_forest: np.array):
+    def calculate_tree_weights_sauron(self, X_test: pd.DataFrame, class_predictions_forest: np.array):
         '''
             calculates the SAURON-RF weights for each tree
         '''
-        if not self.tree_weights:
-            tree_weights_dict = {}
-            for test_sample in X_test.index:
-                tree_weights_dict[test_sample] = np.full(
-                    len(self.trees), 1/len(self.trees))
-            self.tree_weights_dict = tree_weights_dict
-            return
         X_test['class_predictions'] = class_predictions_forest
         tree_weights_dict = {}
         for test_sample in X_test.index:
@@ -621,6 +640,31 @@ class MORGOTH:
             for i in range(len(self.trees)):
                 tree_weights_dict[test_sample][i] /= sum_trees
         self.tree_weights_dict = tree_weights_dict
+
+    def calculate_tree_weights_wma(self):
+        losses = []
+        for tree in self.trees:
+            y_pred = tree.predict(self.X_target_train)
+            #tree_loss = calculate_batch_wma_loss(y_pred, y_target, None)
+            tree_loss = None
+            losses.append(tree_loss)
+        losses = np.array(losses)
+
+        self.weights = self.beta ** losses
+
+    def calculate_tree_weights(self, X_test: pd.DataFrame, class_predictions_forest: np.array):
+
+        if self.tree_weights is None:
+            tree_weights_dict = {}
+            for test_sample in X_test.index:
+                tree_weights_dict[test_sample] = np.full(
+                    len(self.trees), 1/len(self.trees))
+            self.tree_weights_dict = tree_weights_dict
+            return
+        elif self.tree_weights == 'sauron':
+            self.calculate_tree_weights_sauron(X_test, class_predictions_forest)
+        elif self.tree_weights == 'wma':
+            self.calculate_tree_weights_wma()
 
     def calculate_weight_efficiently(self, X_test: pd.DataFrame, class_predictions_forest: np.array) -> None:
         start_time = time.perf_counter()
