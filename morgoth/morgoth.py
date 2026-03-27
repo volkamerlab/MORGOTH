@@ -95,7 +95,8 @@ class MORGOTH:
 
         self.X_target_train = copy.deepcopy(X_target_train)
         self.y_target_train = np.array(y_target_train)
-
+        self.beta = beta
+        self.lambda_wma = labda_wma
 
         self.y_train = np.array(y_train)
         self.output_format = output_format
@@ -645,8 +646,19 @@ class MORGOTH:
         losses = []
         for tree in self.trees:
             y_pred = tree.predict(self.X_target_train)
-            #tree_loss = calculate_batch_wma_loss(y_pred, y_target, None)
-            tree_loss = None
+            if self.output_format == 'regression':
+                tree_loss = calculate_batch_wma_loss(y_pred, self.y_train_target_reg, self.loss_wma_regression)
+            elif self.output_format == 'classification':
+                tree_loss = calculate_batch_wma_loss(y_pred, self.y_train_target_class, self.loss_wma_classification)
+            elif self.output_format == 'multioutput':
+                split = np.hsplit(y_pred, 2)
+                y_pred_reg = split[0].flatten()
+                y_pred_class= split[1].flatten()
+                classification_loss = calculate_batch_wma_loss(y_pred_class, self.y_train_target_class, self.loss_wma_classification)
+                regression_loss = calculate_batch_wma_loss(y_pred_reg, self.y_train_target_reg, self.loss_wma_regression)
+                # TODO needs to be normalized so that classification and regression are in same range
+                tree_loss = self.lambda_wma * classification_loss + self.lambda_wma * regression_loss
+            
             losses.append(tree_loss)
         losses = np.array(losses)
 
@@ -1009,3 +1021,62 @@ class MORGOTH:
 def label_fun(match: re.Match) -> str:
     string = match.group()
     return string.replace('-', '')
+
+
+def calculate_batch_wma_loss(y_pred, y_target, loss:str):
+    if loss == 'sum':
+        return sum_false_predictions(y_pred=y_pred, y_target=y_target, weighted=False)
+    elif loss == 'weighted_sum':
+        return sum_false_predictions(y_pred=y_pred, y_target=y_target, weighted=True)
+    elif loss == 'cost_sensitive':
+        num_pos = y_target.sum()
+        num_neg = len(y_target) - num_pos
+        return cost_sensitive_confusion_loss(y_pred = y_pred, y_true=y_target, C_FN=num_pos/num_neg, C_FP=1, C_TP=-num_neg/num_pos, C_TN=0)
+    elif loss == 'abs':
+        return abs_deviation_loss(y_pred=y_pred, y_true=y_target)
+        
+
+def cost_sensitive_confusion_loss(
+        y_pred, y_true,
+        C_FN,
+        C_FP,
+        C_TP,
+        C_TN
+    ):
+    
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+
+    TP = np.sum((y_pred == 1) & (y_true == 1))
+    TN = np.sum((y_pred == 0) & (y_true == 0))
+    FN = np.sum((y_pred == 0) & (y_true == 1))
+    FP = np.sum((y_pred == 1) & (y_true == 0))
+
+    return C_FN*FN + C_FP*FP + C_TP*TP + C_TN*TN
+
+def abs_deviation_loss(y_pred, y_true):
+    loss = 0
+    for y_hat, y in zip(y_pred, y_true):
+        loss += abs(y_hat- y)
+    return loss
+
+def sum_false_predictions(y_pred, y_target, weighted:bool = False):
+    if weighted:
+        num_pos = y_target.sum()
+        num_neg = len(y_target) - num_pos
+        minority_weight = num_pos/num_neg
+        
+        majority_weight = 1
+    else:
+        minority_weight = 1
+        majority_weight = 1
+    loss = 0
+    for y_hat, y in zip(y_pred, y_target):
+        if (y_hat == 0) and (y == 1):
+            # FN
+            loss += minority_weight
+        elif (y_hat == 1) and (y == 0):
+            # FP
+            loss += majority_weight
+    return loss
+
