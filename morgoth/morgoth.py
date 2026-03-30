@@ -691,7 +691,11 @@ class MORGOTH:
             self.calculate_tree_weights_sauron(
                 X_test, class_predictions_forest)
         elif self.tree_weights == 'wma':
-            self.calculate_tree_weights_wma()
+            losses = self.calculate_tree_weights_wma()
+            tree_weights_dict = {}
+            for test_sample in X_test.index:
+                tree_weights_dict[test_sample] = losses 
+            self.tree_weights_dict = tree_weights_dict
 
     def calculate_weight_efficiently(self, X_test: pd.DataFrame, class_predictions_forest: np.array) -> None:
         start_time = time.perf_counter()
