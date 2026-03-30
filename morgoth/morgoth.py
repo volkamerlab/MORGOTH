@@ -24,8 +24,8 @@ class MORGOTH:
                  output_format: str, threshold: List[float], time_file: str, sample_weights_included: str, random_state: int, max_depth: int,
                  impact_classification: float, sample_info_file: str, analysis_name: str, leaf_assignment_file_train: str, feature_imp_output_file: str,
                  tree_weights: str = None, silhouette_score_file: str = None, distance_measure: str = '', cluster_assignment_file: str = None, graph_path: str = None, draw_graph: bool = False,
-                 silhouette_score_train_file: str = None, X_target_train = None, y_target_train: np.array = None, loss_wma_regression:str = 'mae', loss_wma_classification:str = 'sum_incorrect',
-                 beta:float = 0.5, labda_wma:float = 0.5):
+                 silhouette_score_train_file: str = None, X_target_train=None, y_target_train: np.array = None, loss_wma_regression: str = 'mae', loss_wma_classification: str = 'sum_incorrect',
+                 beta: float = 0.5, labda_wma: float = 0.5):
         '''
             constructor of MORGOTH
 
@@ -123,11 +123,11 @@ class MORGOTH:
         self.tree_weights = tree_weights
         if self.tree_weights == 'sauron' and not self.output_format == 'multioutput':
             raise (ValueError(
-                    f'SAURON Tree weights cannot be calculated for univariate RF.'))
+                f'SAURON Tree weights cannot be calculated for univariate RF.'))
         elif self.tree_weights == 'wma' and ((X_target_train is None) or (y_target_train is None)):
-            
+
             raise (ValueError(
-                    f'WMA style Tree weights cannot be calculated without providing fine tune data RF.'))
+                f'WMA style Tree weights cannot be calculated without providing fine tune data RF.'))
         self.loss_wma_classification = loss_wma_classification
         self.loss_wma_regression = loss_wma_regression
         self.distance_measure = distance_measure
@@ -150,7 +150,6 @@ class MORGOTH:
         else:
             self.total_number_of_features_per_split = int(
                 number_of_features_per_split*len(self.X_train.columns))
-
 
         self.class_names = class_names
         self.thresholds = threshold
@@ -202,7 +201,8 @@ class MORGOTH:
                     self.train_sample_weights = np.array(self.calculate_weights(
                         self.thresholds, self.y_train, self.sample_weights_included))
                 elif self.sample_weights_included == 'simple':
-                    self.train_sample_weights = self.calculate_simple_weights(sorted_thresholds=self.thresholds, response_values=self.y_train)
+                    self.train_sample_weights = self.calculate_simple_weights(
+                        sorted_thresholds=self.thresholds, response_values=self.y_train)
                 else:
                     self.train_sample_weights = np.ones(len(self.y_train))
                 start_time = time.perf_counter()
@@ -644,25 +644,39 @@ class MORGOTH:
 
     def calculate_tree_weights_wma(self):
         losses = []
+        losses_classification = []
+        losses_regression = []
         for tree in self.trees:
             y_pred = tree.predict(self.X_target_train)
             if self.output_format == 'regression':
-                tree_loss = calculate_batch_wma_loss(y_pred, self.y_train_target_reg, self.loss_wma_regression)
+                tree_loss = calculate_batch_wma_loss(
+                    y_pred, self.y_train_target_reg, self.loss_wma_regression)
+                losses.append(tree_loss)
             elif self.output_format == 'classification':
-                tree_loss = calculate_batch_wma_loss(y_pred, self.y_train_target_class, self.loss_wma_classification)
+                tree_loss = calculate_batch_wma_loss(
+                    y_pred, self.y_train_target_class, self.loss_wma_classification)
+                losses.append(tree_loss)
             elif self.output_format == 'multioutput':
                 split = np.hsplit(y_pred, 2)
                 y_pred_reg = split[0].flatten()
-                y_pred_class= split[1].flatten()
-                classification_loss = calculate_batch_wma_loss(y_pred_class, self.y_train_target_class, self.loss_wma_classification)
-                regression_loss = calculate_batch_wma_loss(y_pred_reg, self.y_train_target_reg, self.loss_wma_regression)
+                y_pred_class = split[1].flatten()
+                classification_loss = calculate_batch_wma_loss(
+                    y_pred_class, self.y_train_target_class, self.loss_wma_classification)
+                regression_loss = calculate_batch_wma_loss(
+                    y_pred_reg, self.y_train_target_reg, self.loss_wma_regression)
                 # TODO needs to be normalized so that classification and regression are in same range
-                tree_loss = self.lambda_wma * classification_loss + self.lambda_wma * regression_loss
-            
-            losses.append(tree_loss)
-        losses = np.array(losses)
+                losses_classification.append(classification_loss)
+                losses_regression.append(regression_loss)
 
-        self.weights = self.beta ** losses
+        if self.output_format == 'multioutput':
+            max_val_cl = np.max(losses_classification)
+            max_val_rg = np.max(losses_regression)
+            for cl, rl in zip(losses_classification, losses_regression):
+                loss = self.lambda_wma * \
+                    (cl / max_val_cl) + (1-self.lambda_wma) * (cr / max_val_rg)
+                losses.append(loss)
+        losses = np.array(losses)
+        return self.beta ** losses
 
     def calculate_tree_weights(self, X_test: pd.DataFrame, class_predictions_forest: np.array):
 
@@ -674,7 +688,8 @@ class MORGOTH:
             self.tree_weights_dict = tree_weights_dict
             return
         elif self.tree_weights == 'sauron':
-            self.calculate_tree_weights_sauron(X_test, class_predictions_forest)
+            self.calculate_tree_weights_sauron(
+                X_test, class_predictions_forest)
         elif self.tree_weights == 'wma':
             self.calculate_tree_weights_wma()
 
@@ -1023,27 +1038,31 @@ def label_fun(match: re.Match) -> str:
     return string.replace('-', '')
 
 
-def calculate_batch_wma_loss(y_pred, y_target, loss:str):
+def calculate_batch_wma_loss(y_pred, y_target, loss: str):
     if loss == 'sum':
-        return sum_false_predictions(y_pred=y_pred, y_target=y_target, weighted=False)
+        losses = sum_false_predictions(
+            y_pred=y_pred, y_target=y_target, weighted=False)
     elif loss == 'weighted_sum':
-        return sum_false_predictions(y_pred=y_pred, y_target=y_target, weighted=True)
+        losses = sum_false_predictions(
+            y_pred=y_pred, y_target=y_target, weighted=True)
     elif loss == 'cost_sensitive':
         num_pos = y_target.sum()
         num_neg = len(y_target) - num_pos
-        return cost_sensitive_confusion_loss(y_pred = y_pred, y_true=y_target, C_FN=num_pos/num_neg, C_FP=1, C_TP=-num_neg/num_pos, C_TN=0)
+        losses = cost_sensitive_confusion_loss(
+            y_pred=y_pred, y_true=y_target, C_FN=num_pos/num_neg, C_FP=1, C_TP=-num_neg/num_pos, C_TN=0)
     elif loss == 'abs':
-        return abs_deviation_loss(y_pred=y_pred, y_true=y_target)
-        
+        losses = abs_deviation_loss(y_pred=y_pred, y_true=y_target)
+    return losses
+
 
 def cost_sensitive_confusion_loss(
-        y_pred, y_true,
-        C_FN,
-        C_FP,
-        C_TP,
-        C_TN
-    ):
-    
+    y_pred, y_true,
+    C_FN,
+    C_FP,
+    C_TP,
+    C_TN
+):
+
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
 
@@ -1054,18 +1073,20 @@ def cost_sensitive_confusion_loss(
 
     return C_FN*FN + C_FP*FP + C_TP*TP + C_TN*TN
 
+
 def abs_deviation_loss(y_pred, y_true):
     loss = 0
     for y_hat, y in zip(y_pred, y_true):
-        loss += abs(y_hat- y)
+        loss += abs(y_hat - y)
     return loss
 
-def sum_false_predictions(y_pred, y_target, weighted:bool = False):
+
+def sum_false_predictions(y_pred, y_target, weighted: bool = False):
     if weighted:
         num_pos = y_target.sum()
         num_neg = len(y_target) - num_pos
         minority_weight = num_pos/num_neg
-        
+
         majority_weight = 1
     else:
         minority_weight = 1
@@ -1079,4 +1100,3 @@ def sum_false_predictions(y_pred, y_target, weighted:bool = False):
             # FP
             loss += majority_weight
     return loss
-
