@@ -24,7 +24,7 @@ class MORGOTH:
                  output_format: str, threshold: List[float], time_file: str, sample_weights_included: str, random_state: int, max_depth: int,
                  impact_classification: float, sample_info_file: str, analysis_name: str, leaf_assignment_file_train: str, feature_imp_output_file: str,
                  tree_weights: str = None, silhouette_score_file: str = None, distance_measure: str = '', cluster_assignment_file: str = None, graph_path: str = None, draw_graph: bool = False,
-                 silhouette_score_train_file: str = None, X_target_train=None, y_target_train: np.array = None, loss_wma_regression: str = 'mae', loss_wma_classification: str = 'sum_incorrect',
+                 silhouette_score_train_file: str = None, X_target_train=None, y_target_train: np.array = None, loss_wma_regression: str = 'mae', loss_wma_classification: str = 'sum',
                  beta: float = 0.5, labda_wma: float = 0.5):
         '''
             constructor of MORGOTH
@@ -230,7 +230,7 @@ class MORGOTH:
         with open(self.time_file, 'w') as time_file:
             time_file.write('Name_of_Analysis\tParameters\tTime\n')
             time_file.write(f'{self.analysis_name}\t#Trees:{self.number_of_trees_in_forest},#MinSamplesLeaf:{self.min_number_of_samples_per_leaf},#FeaturesPerSplit:{self.total_number_of_features_per_split},MaxDepth:{self.max_depth}\t{self.elapsed_time}\n')
-        self.write_leaf_assignment_to_file()
+        # self.write_leaf_assignment_to_file()
         self.print_feature_importance_to_file()
 
     def grow_tree(self, random_object: np.random.RandomState) -> 'tuple[MultivariateDecisionTree, float]':
@@ -435,13 +435,21 @@ class MORGOTH:
             @return: a list containing the majority class for each test sample
         '''
         start_time = time.perf_counter()
+        if self.tree_weights == 'wma':
+            self.calculate_tree_weights(X_test, None)
         forest_predictions_class = []
         for i in range(len(X_test.index.to_list())):
             max_class = None
             max_occ = 0
             for class_name in self.class_names:
-                occurences = weighted_class_count(class_name=class_name, y_class=[
-                    y[i] for y in tree_predictions_class])
+                if self.tree_weights == 'wma':
+                    weights = self.tree_weights_dict[X_test.index.to_list()[i]]
+                    occurences = weighted_class_count(class_name=class_name, y_class=[
+                        y[i] for y in tree_predictions_class], sample_weights=weights)
+
+                else:
+                    occurences = weighted_class_count(class_name=class_name, y_class=[
+                        y[i] for y in tree_predictions_class])
                 if occurences > max_occ:
                     max_class = class_name
                     max_occ = occurences
@@ -647,7 +655,7 @@ class MORGOTH:
         losses_classification = []
         losses_regression = []
         for tree in self.trees:
-            y_pred = tree.predict(self.X_target_train)
+            y_pred, _ = tree.predict(self.X_target_train)
             if self.output_format == 'regression':
                 tree_loss = calculate_batch_wma_loss(
                     y_pred, self.y_train_target_reg, self.loss_wma_regression)
@@ -673,13 +681,12 @@ class MORGOTH:
             max_val_rg = np.max(losses_regression)
             for cl, rl in zip(losses_classification, losses_regression):
                 loss = self.lambda_wma * \
-                    (cl / max_val_cl) + (1-self.lambda_wma) * (cr / max_val_rg)
+                    (cl / max_val_cl) + (1-self.lambda_wma) * (rl / max_val_rg)
                 losses.append(loss)
         losses = np.array(losses)
         return self.beta ** losses
 
     def calculate_tree_weights(self, X_test: pd.DataFrame, class_predictions_forest: np.array):
-
         if self.tree_weights is None:
             tree_weights_dict = {}
             for test_sample in X_test.index:
@@ -694,7 +701,7 @@ class MORGOTH:
             losses = self.calculate_tree_weights_wma()
             tree_weights_dict = {}
             for test_sample in X_test.index:
-                tree_weights_dict[test_sample] = losses 
+                tree_weights_dict[test_sample] = losses
             self.tree_weights_dict = tree_weights_dict
 
     def calculate_weight_efficiently(self, X_test: pd.DataFrame, class_predictions_forest: np.array) -> None:

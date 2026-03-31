@@ -20,6 +20,7 @@ def weighted_class_count(class_name: Union[int, str], y_class: list, sample_weig
     '''
     if sample_weights is None:
         sample_weights = np.ones(len(y_class))
+
     num_occurences = 0
     for i, y in enumerate(y_class):
         if y == class_name:
@@ -83,9 +84,11 @@ def gini_impurity(class_names: np.array, y_class: list, sample_weights: np.array
     num_classes = len(class_names)
     gini = 0
     for i in range(num_classes):
+
         pk = compute_pk(
             current_class=class_names[i], y_class=y_class, sample_weights=sample_weights)
         gini += pk*(1-pk)
+
     return gini
 
 
@@ -203,7 +206,7 @@ class Split():
 
 class BinaryTreeNode:
 
-    def __init__(self, parent, level: int, is_leaf: bool, X_train: pd.DataFrame, y_train: np.array, sample_weights: np.array = None, sample_names_train: np.array = None, output_format:str = 'multioutput'):
+    def __init__(self, parent, level: int, is_leaf: bool, X_train: pd.DataFrame, y_train: np.array, sample_weights: np.array = None, sample_names_train: np.array = None, output_format: str = 'multioutput'):
         '''
             constructor of a tree node in a binary decision tree
 
@@ -231,13 +234,11 @@ class BinaryTreeNode:
             self.y_train_class = self.y_train
         else:
             self.y_train_reg = self.y_train
-            
-            
+
         self.sample_names_train = sample_names_train
         self.sample_weights = sample_weights
         self.normalized_sample_weights = None
         self.information_gain_for_split_exists = None
-        
 
     def find_train_sample_leaf(self, sample: pd.DataFrame,) -> np.array:
         '''
@@ -339,13 +340,13 @@ class BinaryTreeNode:
             @param sample: a pandas DataFrame with the sample, column names should correspond to the feature names in the training data
             @return: a list of length 2 containing at pos 0 the prediction for the regression and at pos 1 the prediction for the classification task
         '''
-        
+
         if self.is_leaf:
             if self.output_format == 'multioutput':
                 if not self.already_predicted:
                     self.calculate_normalized_sample_weights()
                     reg = np.sum([weight * self.y_train_reg[i]
-                                for i, weight in enumerate(self.normalized_sample_weights)])
+                                  for i, weight in enumerate(self.normalized_sample_weights)])
                     majority_class_occurences = 0
                     majority_class = None
                     for class_name in class_names:
@@ -362,7 +363,7 @@ class BinaryTreeNode:
             elif self.output_format == 'classification':
                 if not self.already_predicted:
                     self.calculate_normalized_sample_weights()
-                    
+
                     majority_class_occurences = 0
                     majority_class = None
                     for class_name in class_names:
@@ -379,7 +380,7 @@ class BinaryTreeNode:
                 if not self.already_predicted:
                     self.calculate_normalized_sample_weights()
                     reg = np.sum([weight * self.y_train_reg[i]
-                                for i, weight in enumerate(self.normalized_sample_weights)])
+                                  for i, weight in enumerate(self.normalized_sample_weights)])
                     self.average = reg
                     self.already_predicted = True
 
@@ -407,16 +408,17 @@ class BinaryTreeNode:
         sample_weights = self.sample_weights
         if sample_weights is None:
             print('sample weights are None?')
-        
+
         if not self.output_format == 'regression':
             if not root_class_criterion == 0:
                 node_class_criterion = class_criterion_function(
                     class_names=class_names, y_class=self.y_train_class, sample_weights=sample_weights)/root_class_criterion
+
             else:
                 node_class_criterion = class_criterion_function(
                     class_names=class_names, y_class=self.y_train_class, sample_weights=sample_weights)
         else:
-            node_class_criterion  =0 
+            node_class_criterion = 0
         if not self.output_format == 'classification':
             node_reg_criterion = regression_criterion_function(
                 y_reg=self.y_train_reg, sample_weights=sample_weights)/root_reg_criterion
@@ -424,6 +426,7 @@ class BinaryTreeNode:
             node_reg_criterion = 0
         node_score = impact_classification * node_class_criterion + \
             (1-impact_classification) * node_reg_criterion
+
         best_score = node_score
         best_split = None
 
@@ -461,12 +464,11 @@ class BinaryTreeNode:
         thresholds = self.X_train.loc[:, feature_name]
         sorted_values = np.sort(np.unique(thresholds.values.tolist()))
 
-        considered_values = sorted_values[min_number_of_samples_per_leaf-1:len(
-            sorted_values)-(min_number_of_samples_per_leaf-1)]
+        considered_values = sorted_values
+
         for i, val in enumerate(considered_values):
             if i+1 == len(considered_values):
-                break
-            # we can ignore all options where definetly less than the minimal number of samples would end up in the same leaf
+                continue
             split = Split(feature_name=feature_name,
                           threshold=np.mean([val, considered_values[i+1]]))
 
@@ -492,10 +494,11 @@ class BinaryTreeNode:
                 if root_class_criterion == 0:
                     class_intermediate = 0
                 else:
-                    class_intermediate = (  
+                    class_intermediate = (
                         left_weight * left_class+right_weight * right_class) / root_class_criterion
+
             else:
-                class_intermediate  = 0
+                class_intermediate = 0
             if not self.output_format == 'classification':
                 left_reg = regression_criterion_function(
                     y_reg=self.y_train_reg[left], sample_weights=self.sample_weights[left])
@@ -506,7 +509,7 @@ class BinaryTreeNode:
                                     right_weight * right_reg) / root_reg_criterion
             else:
                 reg_intermediate = 0
-                
+
             act_score = impact_classification * class_intermediate + \
                 (1-impact_classification) * reg_intermediate
 
@@ -555,6 +558,7 @@ class MultivariateDecisionTree:
 
         self.X_train = X_train
         self.y_train = y_train
+
         self.sample_names_train = np.array(sample_names_train)
         self.train_samples_in_same_leaf = {}
         self.feature_importances = {}
