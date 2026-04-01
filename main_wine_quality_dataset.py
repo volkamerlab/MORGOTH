@@ -2,24 +2,24 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import matthews_corrcoef
+from sklearn.metrics import matthews_corrcoef, r2_score, mean_absolute_error
 from morgoth import MORGOTH
 import warnings
 warnings.filterwarnings("ignore")
 
-df = pd.read_csv("Example_Data/Mushroom/mushrooms_with_headers.csv")
+
+
 
 # Split into SOURCE and TARGET by stalk-shape
 # There are two stalk-shape values: "e" and "t"
-source_df = df[df["stalk-shape"] == "t"].copy()
-target_df = df[df["stalk-shape"] == "e"].copy()
+source_df = pd.read_csv('Example_Data/wine_quality/winequality-white.csv', sep = ';')
+target_df = pd.read_csv('Example_Data/wine_quality/winequality-red.csv', sep = ';')
 
 
 def prepare_xy(d):
-    X = d.drop(columns=["class"])
-    y = d["class"].map({"p": 1, "e": 0}).values  # binary label
+    X = d.drop(columns=["quality"])
+    y = d["quality"]
     return X, y
-
 
 Xs_raw, ys = prepare_xy(source_df)
 Xt_raw, yt = prepare_xy(target_df)
@@ -58,7 +58,7 @@ cluster_assignment_file = f'{output_dir}/Cluster_Assignment.txt'
 # rf only trained on the source dataset
 rf_source = MORGOTH(X_train=Xs, y_train=ys, sample_names_train=Xs.index, threshold=[0.5],
                     criterion_class='gini', criterion_reg='mse', min_number_of_samples_per_leaf=10, number_of_trees_in_forest=500, analysis_name='source_only',
-                    number_of_features_per_split='sqrt', class_names=[0, 1], output_format='classification', time_file=time_file,
+                    number_of_features_per_split='sqrt', class_names=[0, 1], output_format='regression', time_file=time_file,
                     sample_weights_included='simple', random_state=seed, max_depth=20, impact_classification=1,
                     sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
                     tree_weights=None, silhouette_score_file=silhouette_score_file, distance_measure='', cluster_assignment_file=cluster_assignment_file,
@@ -83,7 +83,7 @@ for fold, (test_idx, train_idx) in enumerate(kf.split(Xt, yt), 1):
     # -----------------------------------------
     rf_tgt = MORGOTH(X_train=Xt_train, y_train=yt_train, sample_names_train=Xt_train.index, threshold=[0.5],
                      criterion_class='gini', criterion_reg='mse', min_number_of_samples_per_leaf=10, number_of_trees_in_forest=500, analysis_name=f'target_only_fold_{fold}',
-                     number_of_features_per_split='sqrt', class_names=[0, 1], output_format='classification', time_file=time_file,
+                     number_of_features_per_split='sqrt', class_names=[0, 1], output_format='regression', time_file=time_file,
                      sample_weights_included='', random_state=seed, max_depth=20, impact_classification=1,
                      sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
                      tree_weights=None, silhouette_score_file=silhouette_score_file, distance_measure='', cluster_assignment_file=cluster_assignment_file,
@@ -92,16 +92,16 @@ for fold, (test_idx, train_idx) in enumerate(kf.split(Xt, yt), 1):
 
     rf_tgt.fit()
     preds = rf_tgt.predict(Xt_test)
-    mcc = matthews_corrcoef(yt_test, preds)
-    print("Target-only MCC:", mcc)
+    mcc = mean_absolute_error(yt_test, preds)
+    print("Target-only MAE:", mcc)
     results_target.append(mcc)
 
     # -----------------------------------------
     # SOURCE ONLY
     # -----------------------------------------
     preds = rf_source.predict(Xt_test)
-    mcc = matthews_corrcoef(yt_test, preds)
-    print("Source-only MCC:", mcc)
+    mcc = mean_absolute_error(yt_test, preds)
+    print("Source-only MAE:", mcc)
     results_source.append(mcc)
 
     # -----------------------------------------
@@ -109,7 +109,7 @@ for fold, (test_idx, train_idx) in enumerate(kf.split(Xt, yt), 1):
     # -----------------------------------------
     rf_tl = MORGOTH(X_train=Xs, y_train=ys, sample_names_train=Xs.index, threshold=[0.5],
                     criterion_class='gini', criterion_reg='mse', min_number_of_samples_per_leaf=10, number_of_trees_in_forest=500, analysis_name=f'target_only_fold_{fold}',
-                    number_of_features_per_split='sqrt', class_names=[0, 1], output_format='classification', time_file=time_file,
+                    number_of_features_per_split='sqrt', class_names=[0, 1], output_format='regression', time_file=time_file,
                     sample_weights_included='simple', random_state=seed, max_depth=20, impact_classification=1,
                     sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
                     tree_weights='wma', silhouette_score_file=silhouette_score_file, distance_measure='', cluster_assignment_file=cluster_assignment_file,
@@ -121,11 +121,11 @@ for fold, (test_idx, train_idx) in enumerate(kf.split(Xt, yt), 1):
     rf_tl.fit()                # Pretrain
     preds = rf_tl.predict_proba(Xt_test)
     preds = rf_tl.predict(Xt_test)
-    mcc = matthews_corrcoef(yt_test, preds)
-    print("Transfer MCC:", mcc)
+    mcc = mean_absolute_error(yt_test, preds)
+    print("Transfer MAE:", mcc)
     results_transfer.append(mcc)
 
 print("\n====================== FINAL RESULTS ======================")
-print("Target-only MCC: mean=%.4f" % np.mean(results_target))
-print("Source-only MCC: mean=%.4f" % np.mean(results_source))
-print("Transfer MCC:    mean=%.4f" % np.mean(results_transfer))
+print("Target-only MAE: mean=%.4f" % np.mean(results_target))
+print("Source-only MAE: mean=%.4f" % np.mean(results_source))
+print("Transfer MAE:    mean=%.4f" % np.mean(results_transfer))

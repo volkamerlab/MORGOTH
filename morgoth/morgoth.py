@@ -233,6 +233,9 @@ class MORGOTH:
         # self.write_leaf_assignment_to_file()
         self.print_feature_importance_to_file()
 
+
+    
+
     def grow_tree(self, random_object: np.random.RandomState) -> 'tuple[MultivariateDecisionTree, float]':
         ''' 
             grows a MultivariateDecisionTree with the given random object
@@ -298,6 +301,9 @@ class MORGOTH:
         '''
         # pool.map results are ordered
         start = time.perf_counter()
+
+        if self.tree_weights == 'wma':
+            self.calculate_tree_weights(X_test)
         if self.output_format == 'classification':
             with Pool() as pool:
                 predict_output = pool.map(
@@ -360,6 +366,8 @@ class MORGOTH:
             @param quantile: list of floats or none, if not none quantile prediction is performed
             @return: a list containing the predictions, s.t. it matches the output format
         '''
+        if self.tree_weights == 'wma':
+            self.calculate_tree_weights(X_test)
         if self.output_format == 'classification':
             with Pool() as pool:
                 predict_output = pool.map(
@@ -417,11 +425,18 @@ class MORGOTH:
         for i in range(len(X_test.index.to_list())):
             sample_pred_probas = []
             for class_name in self.class_names:
-                occurences = weighted_class_count(class_name=class_name, y_class=[
-                    y[i] for y in tree_predictions_class])
-                sample_pred_probas.append(
-                    occurences/self.number_of_trees_in_forest)
-            assert (np.sum(sample_pred_probas) == 1)
+                if self.tree_weights == 'wma':
+                    weights = self.tree_weights_dict[X_test.index.to_list()[i]]
+                    occurences = weighted_class_count(class_name=class_name, y_class=[
+                        y[i] for y in tree_predictions_class], sample_weights=weights)
+                    sample_pred_probas.append(
+                        round(occurences/np.sum(weights), 6))
+                else:
+                    occurences = weighted_class_count(class_name=class_name, y_class=[
+                        y[i] for y in tree_predictions_class])
+                    sample_pred_probas.append(
+                        occurences/self.number_of_trees_in_forest)
+
             forest_predictions_class.append(sample_pred_probas)
         end_time = time.perf_counter()
         return np.array(forest_predictions_class)
@@ -435,8 +450,6 @@ class MORGOTH:
             @return: a list containing the majority class for each test sample
         '''
         start_time = time.perf_counter()
-        if self.tree_weights == 'wma':
-            self.calculate_tree_weights(X_test, None)
         forest_predictions_class = []
         for i in range(len(X_test.index.to_list())):
             max_class = None
@@ -469,7 +482,8 @@ class MORGOTH:
                 or a list containing the "normal" regression results
         '''
         start_time = time.perf_counter()
-        self.calculate_tree_weights(X_test, class_predictions_forest)
+        if not self.tree_weights == 'wma':
+            self.calculate_tree_weights(X_test, class_predictions_forest)
         tree_predictions_reg = np.array(tree_predictions_reg)
         if quantile is None:
             forest_predictions_reg = []
@@ -686,7 +700,7 @@ class MORGOTH:
         losses = np.array(losses)
         return self.beta ** losses
 
-    def calculate_tree_weights(self, X_test: pd.DataFrame, class_predictions_forest: np.array):
+    def calculate_tree_weights(self, X_test: pd.DataFrame, class_predictions_forest: np.array = None):
         if self.tree_weights is None:
             tree_weights_dict = {}
             for test_sample in X_test.index:
@@ -695,6 +709,7 @@ class MORGOTH:
             self.tree_weights_dict = tree_weights_dict
             return
         elif self.tree_weights == 'sauron':
+            
             self.calculate_tree_weights_sauron(
                 X_test, class_predictions_forest)
         elif self.tree_weights == 'wma':
