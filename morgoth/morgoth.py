@@ -121,6 +121,7 @@ class MORGOTH:
         self.number_of_trees_in_forest = number_of_trees_in_forest
         self.number_of_features_per_split = number_of_features_per_split
         self.tree_weights = tree_weights
+        self.tree_weights_dict = None
         if self.tree_weights == 'sauron' and not self.output_format == 'multioutput':
             raise (ValueError(
                 f'SAURON Tree weights cannot be calculated for univariate RF.'))
@@ -302,7 +303,7 @@ class MORGOTH:
         # pool.map results are ordered
         start = time.perf_counter()
 
-        if self.tree_weights == 'wma':
+        if not self.tree_weights == 'sauron':
             self.calculate_tree_weights(X_test)
         if self.output_format == 'classification':
             with Pool() as pool:
@@ -482,7 +483,7 @@ class MORGOTH:
                 or a list containing the "normal" regression results
         '''
         start_time = time.perf_counter()
-        if not self.tree_weights == 'wma':
+        if self.tree_weights == 'sauron':
             self.calculate_tree_weights(X_test, class_predictions_forest)
         tree_predictions_reg = np.array(tree_predictions_reg)
         if quantile is None:
@@ -693,12 +694,19 @@ class MORGOTH:
         if self.output_format == 'multioutput':
             max_val_cl = np.max(losses_classification)
             max_val_rg = np.max(losses_regression)
+            min_val_cl = np.min(losses_classification)
+            min_val_rg = np.min(losses_regression)
             for cl, rl in zip(losses_classification, losses_regression):
+                # we use a min max normalization so that both losses are in a range [0,1]
                 loss = self.lambda_wma * \
-                    (cl / max_val_cl) + (1-self.lambda_wma) * (rl / max_val_rg)
+                    ((cl  - min_val_cl)/ (max_val_cl - min_val_cl)) + (1-self.lambda_wma) * ((rl -min_val_rg)/ (max_val_rg - min_val_rg))
                 losses.append(loss)
+        
         losses = np.array(losses)
-        return self.beta ** losses
+        losses  = self.beta ** losses
+        sum_losses = np.sum(losses)
+        # we normalize the losses so that they sum up to 1 which is important as otherwise our regression prediction function would not work anymore
+        return losses/sum_losses
 
     def calculate_tree_weights(self, X_test: pd.DataFrame, class_predictions_forest: np.array = None):
         if self.tree_weights is None:
