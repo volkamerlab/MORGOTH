@@ -25,7 +25,7 @@ class MORGOTH:
                  impact_classification: float, sample_info_file: str, analysis_name: str, leaf_assignment_file_train: str, feature_imp_output_file: str,
                  tree_weights: str = None, silhouette_score_file: str = None, distance_measure: str = '', cluster_assignment_file: str = None, graph_path: str = None, draw_graph: bool = False,
                  silhouette_score_train_file: str = None, X_target_train=None, y_target_train: np.array = None, loss_wma_regression: str = 'mae', loss_wma_classification: str = 'sum',
-                 beta: float = 0.5, labda_wma: float = 0.5):
+                 beta: float = 0.5, labda_wma: float = 0.5, tree_weight_file:str = None):
         '''
             constructor of MORGOTH
 
@@ -86,6 +86,7 @@ class MORGOTH:
             @param beta: float between (0,1) needed for the wma weights, which will be beta**loss. Thus, the closer it is to one the closer it is to weighting all trees equally. Default = 0.5
             @param labda_wma: float in [0,1], defining how much impact the classification loss should have for the wma weights. Thus, only needed if tree_weights = 'wma' and output_format = 'multioutput'.
                 The impact of the regression function is 1-impact_classification. Default = 0.5. 
+            @param tree_weight_file: file where the tree weights should be stored
         '''
         self.original_Xtrain = copy.deepcopy(X_train)
         self.original_ytrain = copy.deepcopy(y_train)
@@ -104,9 +105,10 @@ class MORGOTH:
             split = np.hsplit(self.y_train, 2)
             self.y_train_reg = split[0].flatten()
             self.y_train_class = split[1].flatten()
-            split_target = np.hsplit(self.y_target_train, 2)
-            self.y_train_target_reg = split_target[0].flatten()
-            self.y_train_target_class = split_target[1].flatten()
+            if not y_target_train is None:
+                split_target = np.hsplit(self.y_target_train, 2)
+                self.y_train_target_reg = split_target[0].flatten()
+                self.y_train_target_class = split_target[1].flatten()
         elif self.output_format == 'classification':
             self.y_train_class = y_train
             self.y_train_target_class = y_target_train
@@ -122,6 +124,7 @@ class MORGOTH:
         self.number_of_features_per_split = number_of_features_per_split
         self.tree_weights = tree_weights
         self.tree_weights_dict = None
+        self.tree_weight_file = tree_weight_file
         if self.tree_weights == 'sauron' and not self.output_format == 'multioutput':
             raise (ValueError(
                 f'SAURON Tree weights cannot be calculated for univariate RF.'))
@@ -353,6 +356,7 @@ class MORGOTH:
                 X_test=X_test, tree_predictions_class=np.array(tree_predictions_class)))
             forest_predictions_reg = np.array(self.predict_regression(X_test=X_test, tree_predictions_reg=np.array(
                 tree_predictions_reg), quantile=quantile, class_predictions_forest=forest_predictions_class))
+            
             self.write_leaf_silhouette_scores_to_file(
                 test_sample_names=X_test.index, X_test=X_test)
             end = time.perf_counter()
@@ -460,11 +464,13 @@ class MORGOTH:
                     weights = self.tree_weights_dict[X_test.index.to_list()[i]]
                     occurences = weighted_class_count(class_name=class_name, y_class=[
                         y[i] for y in tree_predictions_class], sample_weights=weights)
-
                 else:
                     occurences = weighted_class_count(class_name=class_name, y_class=[
                         y[i] for y in tree_predictions_class])
-                if occurences > max_occ:
+                if max_class is None:
+                    max_occ = occurences
+                    max_class = class_name
+                elif occurences > max_occ:
                     max_class = class_name
                     max_occ = occurences
             forest_predictions_class.append(max_class)
@@ -671,6 +677,9 @@ class MORGOTH:
         losses_regression = []
         for tree in self.trees:
             y_pred, _ = tree.predict(self.X_target_train)
+            for i, p in enumerate(y_pred):
+                y_pred[i] = np.array(p)
+            y_pred = np.array(y_pred[0])
             if self.output_format == 'regression':
                 tree_loss = calculate_batch_wma_loss(
                     y_pred, self.y_train_target_reg, self.loss_wma_regression)
@@ -690,7 +699,7 @@ class MORGOTH:
                 # TODO needs to be normalized so that classification and regression are in same range
                 losses_classification.append(classification_loss)
                 losses_regression.append(regression_loss)
-
+        
         if self.output_format == 'multioutput':
             max_val_cl = np.max(losses_classification)
             max_val_rg = np.max(losses_regression)
@@ -698,15 +707,30 @@ class MORGOTH:
             min_val_rg = np.min(losses_regression)
             for cl, rl in zip(losses_classification, losses_regression):
                 # we use a min max normalization so that both losses are in a range [0,1]
-                loss = self.lambda_wma * \
-                    ((cl  - min_val_cl)/ (max_val_cl - min_val_cl)) + (1-self.lambda_wma) * ((rl -min_val_rg)/ (max_val_rg - min_val_rg))
+                if (max_val_cl - min_val_cl) != 0:
+                    class_intermediate = ((cl  - min_val_cl)/ (max_val_cl - min_val_cl))
+                else:
+                    class_intermediate = 1
+                if (max_val_rg - min_val_rg) != 0:
+                    reg_intermediate = ((rl -min_val_rg)/ (max_val_rg - min_val_rg))
+                else:
+                    reg_intermediate =1
+                loss = self.lambda_wma * class_intermediate + (1-self.lambda_wma) * reg_intermediate
+                
                 losses.append(loss)
         
         losses = np.array(losses)
         losses  = self.beta ** losses
         sum_losses = np.sum(losses)
+        with open('losses.txt', 'w') as test_file:
+            for loss in losses:
+                test_file.write(f'{loss}\n')
         # we normalize the losses so that they sum up to 1 which is important as otherwise our regression prediction function would not work anymore
-        return losses/sum_losses
+        losses = losses/sum_losses
+        with open('normalized_losses.txt', 'w') as test_file:
+            for loss in losses:
+                test_file.write(f'{loss}\n')
+        return losses
 
     def calculate_tree_weights(self, X_test: pd.DataFrame, class_predictions_forest: np.array = None):
         if self.tree_weights is None:
@@ -715,7 +739,6 @@ class MORGOTH:
                 tree_weights_dict[test_sample] = np.full(
                     len(self.trees), 1/len(self.trees))
             self.tree_weights_dict = tree_weights_dict
-            return
         elif self.tree_weights == 'sauron':
             
             self.calculate_tree_weights_sauron(
@@ -726,6 +749,11 @@ class MORGOTH:
             for test_sample in X_test.index:
                 tree_weights_dict[test_sample] = losses
             self.tree_weights_dict = tree_weights_dict
+        if not (self.tree_weight_file is None):
+            with open(self.tree_weight_file, 'w') as tree_weight_file:
+                weights = self.tree_weights_dict[X_test.index[0]]
+                for i, weight in enumerate(weights):
+                    tree_weight_file.write(f'{i}\t{weight}\n')
 
     def calculate_weight_efficiently(self, X_test: pd.DataFrame, class_predictions_forest: np.array) -> None:
         start_time = time.perf_counter()
@@ -1075,7 +1103,8 @@ def label_fun(match: re.Match) -> str:
 def calculate_batch_wma_loss(y_pred, y_target, loss: str):
     if loss == 'sum':
         losses = sum_false_predictions(
-            y_pred=y_pred, y_target=y_target, weighted=False)
+            y_pred=y_pred, y_target=y_target)
+        
     elif loss == 'weighted_sum':
         losses = sum_false_predictions(
             y_pred=y_pred, y_target=y_target, weighted=True)
@@ -1086,6 +1115,8 @@ def calculate_batch_wma_loss(y_pred, y_target, loss: str):
             y_pred=y_pred, y_true=y_target, C_FN=num_pos/num_neg, C_FP=1, C_TP=-num_neg/num_pos, C_TN=0)
     elif loss == 'abs':
         losses = abs_deviation_loss(y_pred=y_pred, y_true=y_target)
+    elif loss == 'sum_weighted_binary':
+        loss = sum_false_predictions_binary_weighted(y_pred=y_pred, y_target=y_target, weighted=True)
     return losses
 
 
@@ -1114,8 +1145,15 @@ def abs_deviation_loss(y_pred, y_true):
         loss += abs(y_hat - y)
     return loss
 
+def sum_false_predictions(y_pred, y_target):
+    loss = 0
+    for y_hat, y in zip(y_pred, y_target):
+        if y_hat != y:
+            loss += 1
+    return loss
 
-def sum_false_predictions(y_pred, y_target, weighted: bool = False):
+
+def sum_false_predictions_binary_weighted(y_pred, y_target, weighted: bool = False):
     if weighted:
         num_pos = y_target.sum()
         num_neg = len(y_target) - num_pos
