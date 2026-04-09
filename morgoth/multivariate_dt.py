@@ -150,7 +150,7 @@ def MSE(y_reg: list, sample_weights: np.array) -> float:
 
 
 class Split():
-    def __init__(self, feature_name: str, threshold: float):
+    def __init__(self, feature_name: str, threshold: float, operator: str = '<'):
         '''
             construcor of the Split class
 
@@ -158,11 +158,17 @@ class Split():
             @param threshold: float representing the value of the feature used for splitting,
                 we send all samples with a value for feature_name < threshold to the left and
                 all samples with a value for feature_name >= threshold to the right
+            @param operator: the comparison we do, need to swap left and right side for STRUT algorithm
         '''
         self.feature_name = feature_name
         self.threshold = threshold
         self.score = 0
         self.feature_index = None
+        if operator in ['<', '>', '>=', '<=']:
+            self.operator = operator
+        else:
+            print('operator not known using < instead')
+            self.operator = '<'
 
     def calculate_left_right(self, X: pd.DataFrame, epsilon_list: list = None) -> 'tuple[list]':
         '''
@@ -174,8 +180,18 @@ class Split():
                 and the second one is the index list of the right side
         '''
         full_index = set(X.index)
-        index_list_left = X.loc[X[self.feature_name]
-                                < self.threshold, :].index
+        if self.operator == '<':
+            index_list_left = X.loc[X[self.feature_name]
+                                    < self.threshold, :].index
+        elif self.operator == '>=':
+            index_list_left = X.loc[X[self.feature_name]
+                                    >= self.threshold, :].index
+        elif self.operator == '>':
+            index_list_left = X.loc[X[self.feature_name]
+                                    > self.threshold, :].index
+        else:
+            index_list_left = X.loc[X[self.feature_name]
+                                    <= self.threshold, :].index
         index_list_right = list(full_index - set(index_list_left))
         if epsilon_list is None:
             return index_list_left, index_list_right
@@ -282,6 +298,7 @@ class BinaryTreeNode:
             @param class_names: list of available classes
             @param min_number_of_samples_per_leaf: int defining minimal number of samples per leaf node
         '''
+        
         self.class_names = class_names
         if not self.is_split_possible(min_number_of_samples_per_leaf):
             return None
@@ -306,10 +323,10 @@ class BinaryTreeNode:
         '''
             calculates the sample weights normalized for the bootstrap samples assigned to this node (self)
         '''
-        if self.normalized_sample_weights is None:
-            sum_weights_leaf = np.sum(self.sample_weights)
-            self.normalized_sample_weights = [
-                weight/sum_weights_leaf for weight in self.sample_weights]
+
+        sum_weights_leaf = np.sum(self.sample_weights)
+        self.normalized_sample_weights = [
+            weight/sum_weights_leaf for weight in self.sample_weights]
 
     def distribute_test_samples_to_leaves(self, samples: pd.DataFrame, sample_feature_path_dict: dict) -> None:
         '''
@@ -383,10 +400,64 @@ class BinaryTreeNode:
                                   for i, weight in enumerate(self.normalized_sample_weights)])
                     self.average = reg
                     self.already_predicted = True
-
+                if self.average is None:
+                    print('average is none')
                 return self.average
         else:
             print('warning: predict called on no leaf node')
+
+    def fine_tune_threshold(self, X_target, y_target):
+        # TODO implement STRUT
+
+        pass
+    
+    def prune(self):
+        if not self.is_leaf:
+            self.is_leaf = True
+
+    def set_new_sample_weights(self, sample_weights):
+        self.sample_weights = sample_weights
+    
+    def set_sample_names(self, sample_names_train):
+        self.sample_names_train = sample_names_train
+    def set_is_leaf(self, is_leaf):
+        self.is_leaf = is_leaf
+
+    def calculate_own_score(self, impact_classification, root_class_criterion, class_criterion_function, class_names, regression_criterion_function, root_reg_criterion):
+        if not self.output_format == 'regression':
+            if not root_class_criterion == 0:
+                node_class_criterion = class_criterion_function(
+                    class_names=class_names, y_class=self.y_train_class, sample_weights=self.sample_weights)/root_class_criterion
+
+            else:
+                node_class_criterion = class_criterion_function(
+                    class_names=class_names, y_class=self.y_train_class, sample_weights=self.sample_weights)
+        else:
+            node_class_criterion = 0
+        if not self.output_format == 'classification':
+            node_reg_criterion = regression_criterion_function(
+                y_reg=self.y_train_reg, sample_weights=self.sample_weights)/root_reg_criterion
+        else:
+            node_reg_criterion = 0
+        node_score = impact_classification * node_class_criterion + \
+            (1-impact_classification) * node_reg_criterion
+
+        
+        return node_score
+            
+    def set_X_andy_train(self, X_train = None, y_train = None):
+        if not y_train is None:
+            self.y_train = y_train
+            if self.output_format == 'multioutput':
+                split = np.hsplit(self.y_train, 2)
+                self.y_train_reg = split[0].flatten()
+                self.y_train_class = split[1].flatten()
+            elif self.output_format == 'classification':
+                self.y_train_class = self.y_train
+            else:
+                self.y_train_reg = self.y_train
+        if not X_train is None:
+            self.X_train = X_train
 
     def calculate_best_split(self, features: list, class_criterion_function, regression_criterion_function, root_class_criterion: float, root_reg_criterion: float, impact_classification: float, class_names: list, min_number_of_samples_per_leaf: int, root_sample_weights: list) -> Split:
         '''
@@ -405,31 +476,13 @@ class BinaryTreeNode:
             @return: the Split instance of the best possible split or None if no split is better than just not splitting
         '''
 
-        sample_weights = self.sample_weights
-        if sample_weights is None:
+        if self.sample_weights is None:
             print('sample weights are None?')
 
-        if not self.output_format == 'regression':
-            if not root_class_criterion == 0:
-                node_class_criterion = class_criterion_function(
-                    class_names=class_names, y_class=self.y_train_class, sample_weights=sample_weights)/root_class_criterion
-
-            else:
-                node_class_criterion = class_criterion_function(
-                    class_names=class_names, y_class=self.y_train_class, sample_weights=sample_weights)
-        else:
-            node_class_criterion = 0
-        if not self.output_format == 'classification':
-            node_reg_criterion = regression_criterion_function(
-                y_reg=self.y_train_reg, sample_weights=sample_weights)/root_reg_criterion
-        else:
-            node_reg_criterion = 0
-        node_score = impact_classification * node_class_criterion + \
-            (1-impact_classification) * node_reg_criterion
-
-        best_score = node_score
+        
         best_split = None
-
+        node_score = self.calculate_own_score(impact_classification, root_class_criterion, class_criterion_function, class_names, regression_criterion_function, root_reg_criterion)
+        best_score = node_score
         valid_split_found = False
         for feature in features:
             best_score, best_split, valid_split_found = self.calculate_best_split_for_feature(root_sample_weights=root_sample_weights, best_score=best_score, node_score=node_score, min_number_of_samples_per_leaf=min_number_of_samples_per_leaf, class_criterion_function=class_criterion_function,
@@ -521,7 +574,9 @@ class BinaryTreeNode:
                 best_split = split
 
         return best_score, best_split, valid_split_found
-
+    
+    def set_already_predicted(self, already_predicted):
+        self.already_predicted = already_predicted
 
 class MultivariateDecisionTree:
 
@@ -667,6 +722,71 @@ class MultivariateDecisionTree:
         self.leaves = []
         self.leaves.append(self.root)
 
+    def remove_subtree(self, node):
+        if node.is_leaf:
+            self.leaves = list(self.leaves)
+            self.leaves.remove(node)
+
+            self.leaves = np.array(self.leaves)
+
+        else:
+            self.remove_subtree(node.left)
+            self.remove_subtree(node.right)
+
+
+    def structure_transfer(self, X_target, y_target, sample_weights = None):
+        if sample_weights is None:
+            sample_weights = np.ones(len(y_target))
+        done = False
+        last_decisions = [self.root]
+        self.root.set_X_andy_train(X_train=X_target, y_train=y_target)
+        self.root.sample_weights = sample_weights
+        while not done:
+            node = last_decisions.pop()
+            
+
+            node.set_already_predicted(False)
+            if len(node.y_train) == 0:
+                print('pruned')
+                self.remove_subtree(node)
+                node.parent.prune()
+                self.leaves.append(node.parent)
+            elif not node.is_leaf:
+
+                node_score = node.calculate_own_score(impact_classification=self.impact_classification, root_class_criterion=self.root_class_criterion, root_reg_criterion=self.root_reg_criterion, 
+                                                      regression_criterion_function=self.regression_criterion_function, class_names=self.class_names, class_criterion_function=self.class_criterion_function)
+                
+                _, new_split, _ = node.calculate_best_split_for_feature(root_sample_weights = sample_weights, 
+                                                                         min_number_of_samples_per_leaf = 0, class_criterion_function = self.class_criterion_function, 
+                                                                         regression_criterion_function = self.regression_criterion_function, root_reg_criterion = self.root_reg_criterion, 
+                                                                         root_class_criterion = self.root_class_criterion, impact_classification = self.impact_classification, feature_name = node.split.feature_name, 
+                                                                         best_split = None, best_score = node_score, valid_split_found = False, node_score = node_score)
+                if new_split is None:
+                    node.set_is_leaf(True)
+                    self.leaves = list(self.leaves)
+                    self.leaves.append(node)
+                    self.remove_subtree(node.left)
+                    self.remove_subtree(node.right)
+                else:
+                    node.split = new_split
+                    left, right = new_split.calculate_left_right(node.X_train)
+
+                    node.left.set_X_andy_train(node.X_train.loc[left, :].reset_index(drop = True), node.y_train[left])
+                    node.left.set_sample_names(left)
+                    node.left.set_new_sample_weights(node.sample_weights[left])
+                    
+                    node.right.set_X_andy_train(node.X_train.loc[right, :].reset_index(drop = True), node.y_train[right])
+                    node.right.set_sample_names(right)
+                    node.right.set_new_sample_weights(node.sample_weights[right])
+            if not node.is_leaf:
+                last_decisions.append(node.left)
+                last_decisions.append(node.right)
+                
+            if len(last_decisions) == 0:
+                done = True
+        return self
+
+
     def find_train_sample_leaf_friends(self, train_sample_id: int, x_train: pd.Series):
         '''
             finds the samples in the same leaf as a particular training sample
@@ -749,6 +869,8 @@ class MultivariateDecisionTree:
                 # X_train = copy.deepcopy(leaf.X_train)
                 self.train_samples_in_same_leaf[test_sample] = leaf.X_train
                 self.train_samples_names_in_leaf[test_sample] = leaf.sample_names_train
+        if None in predictions:
+            print('none in predictions')
         return predictions, self
 
     def update_depth(self) -> None:

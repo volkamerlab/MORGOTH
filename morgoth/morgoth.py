@@ -24,8 +24,8 @@ class MORGOTH:
                  output_format: str, threshold: List[float], time_file: str, sample_weights_included: str, random_state: int, max_depth: int,
                  impact_classification: float, sample_info_file: str, analysis_name: str, leaf_assignment_file_train: str, feature_imp_output_file: str,
                  tree_weights: str = None, silhouette_score_file: str = None, distance_measure: str = '', cluster_assignment_file: str = None, graph_path: str = None, draw_graph: bool = False,
-                 silhouette_score_train_file: str = None, X_target_train=None, y_target_train: np.array = None, loss_wma_regression: str = 'mae', loss_wma_classification: str = 'sum',
-                 beta: float = 0.5, labda_wma: float = 0.5, tree_weight_file:str = None):
+                 silhouette_score_train_file: str = None, X_target_train=None, y_target_train: np.array = None, loss_wma_regression: str = 'abs', loss_wma_classification: str = 'sum',
+                 beta: float = 0.5, labda_wma: float = 0.5, tree_weight_file:str = None, fine_tune_strategy: str = 'strut'):
         '''
             constructor of MORGOTH
 
@@ -87,6 +87,7 @@ class MORGOTH:
             @param labda_wma: float in [0,1], defining how much impact the classification loss should have for the wma weights. Thus, only needed if tree_weights = 'wma' and output_format = 'multioutput'.
                 The impact of the regression function is 1-impact_classification. Default = 0.5. 
             @param tree_weight_file: file where the tree weights should be stored
+            @param fine_tune_strategy: string indicating if/how new trees should be added, available: strut, ser, mix, 
         '''
         self.original_Xtrain = copy.deepcopy(X_train)
         self.original_ytrain = copy.deepcopy(y_train)
@@ -115,7 +116,7 @@ class MORGOTH:
         else:
             self.y_train_reg = y_train
             self.y_train_target_reg = y_target_train
-
+        self.fine_tune_strategy = fine_tune_strategy
         self.criterion_class = criterion_class
         self.criterion_reg = criterion_reg
         self.sample_names_train = np.array(sample_names_train)
@@ -128,10 +129,7 @@ class MORGOTH:
         if self.tree_weights == 'sauron' and not self.output_format == 'multioutput':
             raise (ValueError(
                 f'SAURON Tree weights cannot be calculated for univariate RF.'))
-        elif self.tree_weights == 'wma' and ((X_target_train is None) or (y_target_train is None)):
 
-            raise (ValueError(
-                f'WMA style Tree weights cannot be calculated without providing fine tune data RF.'))
         self.loss_wma_classification = loss_wma_classification
         self.loss_wma_regression = loss_wma_regression
         self.distance_measure = distance_measure
@@ -238,8 +236,29 @@ class MORGOTH:
         self.print_feature_importance_to_file()
 
 
-    
-
+    def fine_tune(self, X_target, y_target, sample_weights = None):
+        self.X_target_train = X_target
+        self.y_target_train = y_target
+        if self.output_format == 'multioutput':
+            split_target = np.hsplit(self.y_target_train, 2)
+            self.y_train_target_reg = split_target[0].flatten()
+            self.y_train_target_class = split_target[1].flatten()
+        elif self.output_format == 'classification':
+            self.y_train_target_class = y_target
+        else:
+            self.y_train_target_reg = y_target
+        if self.fine_tune_strategy == 'strut':
+            tree_list_copy = copy.deepcopy(self.trees)
+            self.trees = list(self.trees)
+            with Pool() as pool:
+                
+                # parallel built of all trees
+                results = pool.map_async(partial(MultivariateDecisionTree.structure_transfer, X_target = X_target.reset_index(drop = True), y_target = y_target, sample_weights = sample_weights), tree_list_copy)
+                
+                
+                for t in results.get():
+                    self.trees.append(t)
+            self.trees = np.array(self.trees)
     def grow_tree(self, random_object: np.random.RandomState) -> 'tuple[MultivariateDecisionTree, float]':
         ''' 
             grows a MultivariateDecisionTree with the given random object
@@ -496,8 +515,12 @@ class MORGOTH:
             forest_predictions_reg = []
             for i, sample in enumerate(X_test.index):
                 tree_weight_array = self.tree_weights_dict[sample]
+
+
                 forest_pred = 0
+                
                 for j, y in enumerate(tree_predictions_reg):
+                    
                     forest_pred += tree_weight_array[j] * y[i]
                 forest_predictions_reg.append(forest_pred)
             forest_predictions_reg = np.array(forest_predictions_reg)
@@ -509,6 +532,8 @@ class MORGOTH:
 
         end_time = time.perf_counter()
         return forest_predictions_reg
+
+
 
     def calculate_weights(self, threshold: 'list[float]', response_values: np.array, weighting_scheme: str) -> np.array:
         '''
@@ -672,14 +697,18 @@ class MORGOTH:
         self.tree_weights_dict = tree_weights_dict
 
     def calculate_tree_weights_wma(self):
+        if (self.X_target_train is None) or (self.y_target_train is None):
+            print('cannot calculate wma weights without target data')
+            return None
+        print('using wma weights')
         losses = []
         losses_classification = []
         losses_regression = []
+        
         for tree in self.trees:
             y_pred, _ = tree.predict(self.X_target_train)
-            for i, p in enumerate(y_pred):
-                y_pred[i] = np.array(p)
-            y_pred = np.array(y_pred[0])
+
+            
             if self.output_format == 'regression':
                 tree_loss = calculate_batch_wma_loss(
                     y_pred, self.y_train_target_reg, self.loss_wma_regression)
@@ -689,6 +718,10 @@ class MORGOTH:
                     y_pred, self.y_train_target_class, self.loss_wma_classification)
                 losses.append(tree_loss)
             elif self.output_format == 'multioutput':
+                for i, p in enumerate(y_pred):
+                    y_pred[i] = np.array(p)
+                y_pred = np.array(y_pred[0])
+
                 split = np.hsplit(y_pred, 2)
                 y_pred_reg = split[0].flatten()
                 y_pred_class = split[1].flatten()
@@ -732,22 +765,36 @@ class MORGOTH:
                 test_file.write(f'{loss}\n')
         return losses
 
-    def calculate_tree_weights(self, X_test: pd.DataFrame, class_predictions_forest: np.array = None):
+    def calculate_tree_weights(self, X_test: pd.DataFrame , class_predictions_forest: np.array = None):
         if self.tree_weights is None:
+
             tree_weights_dict = {}
             for test_sample in X_test.index:
                 tree_weights_dict[test_sample] = np.full(
                     len(self.trees), 1/len(self.trees))
             self.tree_weights_dict = tree_weights_dict
         elif self.tree_weights == 'sauron':
-            
+            if X_test is None:
+                print('cannot calculate Sauron weigths without test samples')
+                return 
             self.calculate_tree_weights_sauron(
                 X_test, class_predictions_forest)
         elif self.tree_weights == 'wma':
-            losses = self.calculate_tree_weights_wma()
+            wma_weights = self.calculate_tree_weights_wma()
+            if wma_weights is None:
+                print('weighting all trees equally')
+                tree_weights_dict = {}
+                for test_sample in X_test.index:
+                    tree_weights_dict[test_sample] = np.full(
+                        len(self.trees), 1/len(self.trees))
+                self.tree_weights_dict = tree_weights_dict
+                return
+            wma_weights = np.array(wma_weights)
+            if X_test is None:
+                return np.array(wma_weights)
             tree_weights_dict = {}
             for test_sample in X_test.index:
-                tree_weights_dict[test_sample] = losses
+                tree_weights_dict[test_sample] = wma_weights
             self.tree_weights_dict = tree_weights_dict
         if not (self.tree_weight_file is None):
             with open(self.tree_weight_file, 'w') as tree_weight_file:
@@ -1101,6 +1148,7 @@ def label_fun(match: re.Match) -> str:
 
 
 def calculate_batch_wma_loss(y_pred, y_target, loss: str):
+
     if loss == 'sum':
         losses = sum_false_predictions(
             y_pred=y_pred, y_target=y_target)
@@ -1117,6 +1165,8 @@ def calculate_batch_wma_loss(y_pred, y_target, loss: str):
         losses = abs_deviation_loss(y_pred=y_pred, y_true=y_target)
     elif loss == 'sum_weighted_binary':
         loss = sum_false_predictions_binary_weighted(y_pred=y_pred, y_target=y_target, weighted=True)
+    else:
+        print('loss not kown')
     return losses
 
 
