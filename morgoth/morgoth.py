@@ -87,7 +87,7 @@ class MORGOTH:
             @param labda_wma: float in [0,1], defining how much impact the classification loss should have for the wma weights. Thus, only needed if tree_weights = 'wma' and output_format = 'multioutput'.
                 The impact of the regression function is 1-impact_classification. Default = 0.5. 
             @param tree_weight_file: file where the tree weights should be stored
-            @param fine_tune_strategy: string indicating if/how new trees should be added, available: strut, ser, mix, 
+            @param fine_tune_strategy: string indicating if/how new trees should be added, available: strut, ser, mix, strut_all, ser_all, mix_all
         '''
         self.original_Xtrain = copy.deepcopy(X_train)
         self.original_ytrain = copy.deepcopy(y_train)
@@ -247,18 +247,61 @@ class MORGOTH:
             self.y_train_target_class = y_target
         else:
             self.y_train_target_reg = y_target
+        if self.fine_tune_strategy == 'strut' or self.fine_tune_strategy == 'strut_all':
+            trees = self.strut(X_target, y_target, sample_weights)
+            if self.fine_tune_strategy == 'strut':
+                self.trees = trees
+            else:
+                self.trees = np.concatenate([self.trees, trees])
+        elif self.fine_tune_strategy == 'mix' or self.fine_tune_strategy == 'mix_all':
+            trees_ser = self.ser(X_target, y_target, sample_weights)
+            trees_strut = self.strut(X_target, y_target, sample_weights)
+            if self.fine_tune_strategy == 'mix':
+                self.trees = np.concatenate([trees_ser, trees_strut])
+            else:
+                self.trees = np.concatenate([trees_ser, trees_strut, self.trees])
+        elif self.fine_tune_strategy == 'ser' or self.fine_tune_strategy == 'ser_all':
+            trees = self.ser(X_target, y_target, sample_weights)
+            if self.fine_tune_strategy == 'ser':
+                self.trees = trees
+            else:
+                self.trees = np.concatenate([self.trees, trees])
+        else:
+            print(f'fine tune strategy {self.fine_tune_strategy} not knwon')
+            return 
+        
+    def ser(self, X_target, y_target, sample_weights) -> np.array:
+        tree_list_copy = copy.deepcopy(self.trees)
+
+
+        new_trees = []
+        with Pool() as pool:
+            
+            # parallel built of all trees
+            results = pool.map_async(partial(MultivariateDecisionTree.structure_expansion_reduction, X_target = X_target.reset_index(drop = True), y_target = y_target, sample_weights = sample_weights), tree_list_copy)
+            
+            for t in results.get():
+                new_trees.append(t)
+
+
+        return np.array(new_trees)
+    
+    def strut(self, X_target, y_target, sample_weights) -> list:
+        tree_list_copy = copy.deepcopy(self.trees)
+
+        new_trees = []
+        with Pool() as pool:
+            
+            # parallel built of all trees
+            results = pool.map_async(partial(MultivariateDecisionTree.structure_transfer, X_target = X_target.reset_index(drop = True), y_target = y_target, sample_weights = sample_weights), tree_list_copy)
+            
+            
+            for t in results.get():
+                new_trees.append(t)
         if self.fine_tune_strategy == 'strut':
-            tree_list_copy = copy.deepcopy(self.trees)
-            self.trees = list(self.trees)
-            with Pool() as pool:
-                
-                # parallel built of all trees
-                results = pool.map_async(partial(MultivariateDecisionTree.structure_transfer, X_target = X_target.reset_index(drop = True), y_target = y_target, sample_weights = sample_weights), tree_list_copy)
-                
-                
-                for t in results.get():
-                    self.trees.append(t)
-            self.trees = np.array(self.trees)
+            self.trees = new_trees
+        return np.array(new_trees)
+    
     def grow_tree(self, random_object: np.random.RandomState) -> 'tuple[MultivariateDecisionTree, float]':
         ''' 
             grows a MultivariateDecisionTree with the given random object

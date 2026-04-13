@@ -6,6 +6,8 @@ if sys.platform.startswith('linux'):
     import fireducks.pandas as pd
 else:
     import pandas as pd
+import copy
+from sklearn.metrics import hamming_loss, mean_absolute_percentage_error
 
 
 def weighted_class_count(class_name: Union[int, str], y_class: list, sample_weights: np.array = None) -> float:
@@ -192,6 +194,7 @@ class Split():
         else:
             index_list_left = X.loc[X[self.feature_name]
                                     <= self.threshold, :].index
+        index_list_left = index_list_left.to_numpy()
         index_list_right = list(full_index - set(index_list_left))
         if epsilon_list is None:
             return index_list_left, index_list_right
@@ -311,12 +314,14 @@ class BinaryTreeNode:
         else:
             self.split = split
             left, right = split.calculate_left_right(X=self.X_train)
+
             self.is_leaf = False
+            
             self.left = BinaryTreeNode(parent=self, level=self.level + 1, is_leaf=True, X_train=self.X_train.iloc[left, :].reset_index(
                 drop=True), y_train=self.y_train[left], sample_weights=self.sample_weights[left], sample_names_train=self.sample_names_train[left], output_format=self.output_format)
             self.right = BinaryTreeNode(parent=self, level=self.level + 1, is_leaf=True, X_train=self.X_train.iloc[right, :].reset_index(
                 drop=True), y_train=self.y_train[right], sample_weights=self.sample_weights[right], sample_names_train=self.sample_names_train[right], output_format=self.output_format)
-            self.X_train = None
+
         return self.split
 
     def calculate_normalized_sample_weights(self) -> None:
@@ -328,7 +333,7 @@ class BinaryTreeNode:
         self.normalized_sample_weights = [
             weight/sum_weights_leaf for weight in self.sample_weights]
 
-    def distribute_test_samples_to_leaves(self, samples: pd.DataFrame, sample_feature_path_dict: dict) -> None:
+    def distribute_test_samples_to_leaves(self, samples: pd.DataFrame, sample_feature_path_dict: dict = None) -> None:
         '''
             distributes unseen (test) samples to the leaves and meanwhile tracks the trace of each sample
 
@@ -340,8 +345,9 @@ class BinaryTreeNode:
         else:
             # self.sample_ids_test = samples.index
             for sample_name in samples.index:
-                sample_feature_path_dict[sample_name].append(
-                    (self.split.feature_name, self.level))
+                if not sample_feature_path_dict is None:
+                    sample_feature_path_dict[sample_name].append(
+                        (self.split.feature_name, self.level))
             left, right = self.split.calculate_left_right(X=samples)
             self.left.distribute_test_samples_to_leaves(
                 samples=samples.loc[left, :], sample_feature_path_dict=sample_feature_path_dict)
@@ -405,15 +411,13 @@ class BinaryTreeNode:
                 return self.average
         else:
             print('warning: predict called on no leaf node')
-
-    def fine_tune_threshold(self, X_target, y_target):
-        # TODO implement STRUT
-
-        pass
     
     def prune(self):
         if not self.is_leaf:
             self.is_leaf = True
+            self.left = None
+            self.right = None
+        
 
     def set_new_sample_weights(self, sample_weights):
         self.sample_weights = sample_weights
@@ -578,6 +582,54 @@ class BinaryTreeNode:
     def set_already_predicted(self, already_predicted):
         self.already_predicted = already_predicted
 
+    def set_split(self, split: Split):
+        self.split = split
+
+    def leaf_error(self, class_names, impact_classification = 0.5):
+        if self.output_format == 'multioutput':
+        
+            self.calculate_normalized_sample_weights()
+            reg = np.sum([weight * self.y_train_reg[i]
+                            for i, weight in enumerate(self.normalized_sample_weights)])
+            majority_class_occurences = 0
+            majority_class = None
+            for class_name in class_names:
+                occ = weighted_class_count(
+                    class_name=class_name, y_class=self.y_train_class, sample_weights=self.sample_weights)
+                if occ > majority_class_occurences:
+                    majority_class_occurences = occ
+                    majority_class = class_name
+            self.average = reg
+            self.majority_class = majority_class
+            loss = (impact_classification * hamming_loss(y_true=self.y_train_class, y_pred = np.full(len(self.y_train), self.majority_class))) + ((1-impact_classification) * mean_absolute_percentage_error(y_true=self.y_train_reg, y_pred = np.full(len(self.y_train), self.average)))
+
+        elif self.output_format == 'classification':
+
+            self.calculate_normalized_sample_weights()
+
+            majority_class_occurences = 0
+            majority_class = None
+            for class_name in class_names:
+                occ = weighted_class_count(
+                    class_name=class_name, y_class=self.y_train_class, sample_weights=self.sample_weights)
+                if occ > majority_class_occurences:
+                    majority_class_occurences = occ
+                    majority_class = class_name
+            self.majority_class = majority_class
+            loss = hamming_loss(y_true=self.y_train, y_pred = np.full(len(self.y_train), self.majority_class))
+
+        else:
+
+            self.calculate_normalized_sample_weights()
+            reg = np.sum([weight * self.y_train_reg[i]
+                            for i, weight in enumerate(self.normalized_sample_weights)])
+            self.average = reg
+            loss = mean_absolute_percentage_error(y_true=self.y_train, y_pred = np.full(len(self.y_train), self.average))
+        return loss
+
+    def subtree_error(self, class_names, impact_classification = 0.5):
+        self.distribute_test_samples_to_leaves(samples = self.X_train, sample_feature_path_dict={})
+
 class MultivariateDecisionTree:
 
     def __init__(self, X_train: pd.DataFrame, y_train: np.array, class_names: np.array = None, criterion_class: str = 'gini', criterion_reg: str = 'mse', min_number_of_samples_per_leaf: int = 1, max_depth: int = 20, number_of_features_per_split: Union[str, float] = 'sqrt', random_object: np.random.RandomState = np.random.RandomState(42), impact_classification: float = 0.5, output_format: str = 'multioutput', sample_weights: np.array = None, sample_names_train: np.array = None, distance_measure: str = 'pearson') -> None:
@@ -741,6 +793,7 @@ class MultivariateDecisionTree:
         last_decisions = [self.root]
         self.root.set_X_andy_train(X_train=X_target, y_train=y_target)
         self.root.sample_weights = sample_weights
+        self.root.set_sample_names(X_target.index.to_numpy())
         while not done:
             node = last_decisions.pop()
             
@@ -757,7 +810,7 @@ class MultivariateDecisionTree:
                                                       regression_criterion_function=self.regression_criterion_function, class_names=self.class_names, class_criterion_function=self.class_criterion_function)
                 
                 _, new_split, _ = node.calculate_best_split_for_feature(root_sample_weights = sample_weights, 
-                                                                         min_number_of_samples_per_leaf = 0, class_criterion_function = self.class_criterion_function, 
+                                                                         min_number_of_samples_per_leaf = self.min_number_of_samples_per_leaf, class_criterion_function = self.class_criterion_function, 
                                                                          regression_criterion_function = self.regression_criterion_function, root_reg_criterion = self.root_reg_criterion, 
                                                                          root_class_criterion = self.root_class_criterion, impact_classification = self.impact_classification, feature_name = node.split.feature_name, 
                                                                          best_split = None, best_score = node_score, valid_split_found = False, node_score = node_score)
@@ -768,15 +821,16 @@ class MultivariateDecisionTree:
                     self.remove_subtree(node.left)
                     self.remove_subtree(node.right)
                 else:
-                    node.split = new_split
+                    # here we should add this divergence gain thing (Equation 1 in 10.1109/TPAMI.2016.2618118)
+                    node.set_split(new_split)
                     left, right = new_split.calculate_left_right(node.X_train)
 
                     node.left.set_X_andy_train(node.X_train.loc[left, :].reset_index(drop = True), node.y_train[left])
-                    node.left.set_sample_names(left)
+                    node.left.set_sample_names(node.sample_names_train[left])
                     node.left.set_new_sample_weights(node.sample_weights[left])
                     
                     node.right.set_X_andy_train(node.X_train.loc[right, :].reset_index(drop = True), node.y_train[right])
-                    node.right.set_sample_names(right)
+                    node.right.set_sample_names(node.sample_names_train[right])
                     node.right.set_new_sample_weights(node.sample_weights[right])
             if not node.is_leaf:
                 last_decisions.append(node.left)
@@ -786,6 +840,123 @@ class MultivariateDecisionTree:
                 done = True
         return self
 
+    def structure_expansion_reduction(self, X_target:pd.DataFrame, y_target:np.array, sample_weights: list  = None):
+        if sample_weights is None:
+            sample_weights = np.ones(len(y_target))
+        last_decisions = [self.root]
+        self.root.set_X_andy_train(X_train=X_target, y_train=y_target)
+        self.root.sample_weights = sample_weights
+        done = False
+        self.root.set_sample_names(X_target.index.to_numpy())
+        # propagate samples through forest
+        while not done:
+            node = last_decisions.pop()
+            node.set_already_predicted(False)
+            if len(node.y_train) == 0:
+                self.remove_subtree(node)
+                node.parent.prune()
+                self.leaves = list(self.leaves)
+                self.leaves.append(node.parent)
+                self.leaves = np.array(self.leaves)
+            elif not node.is_leaf:
+ 
+                left, right = node.split.calculate_left_right(node.X_train)
+                
+                if not ((len(left) == 0) or (len(right) == 0)):
+
+                    node.left.set_X_andy_train(node.X_train.loc[left, :].reset_index(drop = True), node.y_train[left])
+                    node.left.set_sample_names(node.sample_names_train[left])
+                    node.left.set_new_sample_weights(node.sample_weights[left])
+                    
+                    node.right.set_X_andy_train(node.X_train.loc[right, :].reset_index(drop = True), node.y_train[right])
+                    node.right.set_sample_names(node.sample_names_train[right])
+                    node.right.set_new_sample_weights(node.sample_weights[right])
+                else:
+                    self.remove_subtree(node.left)
+                    self.remove_subtree(node.right)
+                    node.prune()
+                    self.leaves = list(self.leaves)
+                    self.leaves.append(node)
+                    node.set_is_leaf(True)
+                    self.leaves = np.array(self.leaves)
+            if not node.is_leaf:
+                last_decisions.append(node.left)
+                last_decisions.append(node.right)
+            if len(last_decisions) == 0:
+                done = True
+        self.update_depth()
+        self.recursive_structure_expansion_reduction(self.root, features=X_target.columns, sample_weights = sample_weights)
+     
+        return self
+
+    def recursive_structure_expansion_reduction(self, node: BinaryTreeNode, features, sample_weights):
+        
+        if node.is_leaf:
+            potential_leaves_to_split = [node]
+            split_possible = node.is_split_possible(min_number_of_samples_per_leaf=self.min_number_of_samples_per_leaf)
+            while split_possible:
+                v = potential_leaves_to_split.pop()
+                split = v.split_node(features=features, root_sample_weights=np.array(sample_weights), class_criterion_function=self.class_criterion_function, regression_criterion_function=self.regression_criterion_function,
+                                    root_class_criterion=self.root_class_criterion, root_reg_criterion=self.root_reg_criterion, impact_classification=self.impact_classification, class_names=self.class_names, min_number_of_samples_per_leaf=self.min_number_of_samples_per_leaf)
+                if split is None:
+                    if len(potential_leaves_to_split) == 0:
+                        split_possible = False
+                else:
+                    v.set_is_leaf(False)
+                    self.leaves = list(self.leaves)
+                    self.leaves.append(v.left)
+                    self.leaves.append(v.right)
+                    self.leaves.remove(v)
+                    self.leaves = np.array(self.leaves)
+                    if v.left.is_split_possible(min_number_of_samples_per_leaf=self.min_number_of_samples_per_leaf):
+                        potential_leaves_to_split.append(v.left)
+                    if v.right.is_split_possible(min_number_of_samples_per_leaf=self.min_number_of_samples_per_leaf):
+                        potential_leaves_to_split.append(v.right)
+                    if len(potential_leaves_to_split) == 0:
+                        split_possible = False
+                    
+        if not node.is_leaf:
+            self.recursive_structure_expansion_reduction(node.left, features, sample_weights)
+            self.recursive_structure_expansion_reduction(node.right, features, sample_weights)
+        
+            leaf_loss = node.leaf_error(self.class_names, self.impact_classification)
+            # calculate subtree error 
+            node.distribute_test_samples_to_leaves(samples=node.X_train)
+            subtree_pred_reg = []
+            subtree_pred_class = []
+
+            for sample in node.X_train.index:
+                for leaf in self.leaves:
+                    if sample in leaf.sample_ids_test:
+                        p = leaf.predict(class_names = self.class_names)
+                        if self.output_format == 'regression':
+                            subtree_pred_reg.append(p)
+                        elif self.output_format == 'classification':
+                            subtree_pred_class.append(p)
+                        else:
+                            subtree_pred_reg.append(p[0])
+                            subtree_pred_class.append(p[1])
+                        break
+            
+            if self.output_format == 'regression':
+                subtree_loss = mean_absolute_percentage_error(y_true=node.y_train, y_pred = subtree_pred_reg)
+            elif self.output_format == 'classification':
+
+                subtree_loss = hamming_loss(y_true=node.y_train, y_pred = subtree_pred_class)
+            else:
+                subtree_loss = (self.impact_classification * hamming_loss(y_true=node.y_train_class, y_pred = subtree_pred_class)) + ((1-self.impact_classification) * mean_absolute_percentage_error(y_true=node.y_train_reg, y_pred = subtree_pred_reg))
+            if leaf_loss < subtree_loss:
+
+                self.remove_subtree(node.left)
+
+                self.remove_subtree(node.right)
+                node.prune()
+                self.leaves = list(self.leaves)
+                self.leaves.append(node)
+                node.set_is_leaf(True)
+                self.leaves = np.array(self.leaves)
+        
+        
 
     def find_train_sample_leaf_friends(self, train_sample_id: int, x_train: pd.Series):
         '''

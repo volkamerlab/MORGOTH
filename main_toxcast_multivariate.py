@@ -71,10 +71,14 @@ tree_weight_file = f'{output_dir}/Tree_Weights_Wine_Classification.txt'
 # Segev et al say they train on 5% of the target for their baseline
 results_target_mcc = []
 results_source_mcc = []
-results_transfer_mcc = []
+results_transfer_strut_mcc = []
+results_strut_wma_mcc = []
+results_wma_mcc = []
 results_target_mae = []
 results_source_mae = []
-results_transfer_mae = []
+results_transfer_strut_mae = []
+results_strut_wma_mae = []
+results_wma_mae = []
 
 for fold in range(5):
     
@@ -126,7 +130,7 @@ for fold in range(5):
                     sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
                     tree_weights=None, silhouette_score_file=silhouette_score_file, distance_measure='', cluster_assignment_file=cluster_assignment_file,
                     draw_graph=False, graph_path=output_dir,
-                    silhouette_score_train_file=silhouette_score_train_file)
+                    silhouette_score_train_file=silhouette_score_train_file, fine_tune_strategy='mix')
     rf_source.fit()
     preds = rf_source.predict(Xt_test)
     split = np.hsplit(preds, 2)
@@ -140,6 +144,22 @@ for fold in range(5):
     results_source_mcc.append(mcc)
     results_source_mae.append(mae)
     print(f"Source-only MAE: {mae}")
+    
+    rf_source.fine_tune(Xt_train, yt_train)
+    preds = rf_source.predict(Xt_test)
+    split = np.hsplit(preds, 2)
+    y_pred_reg = split[0].flatten()
+    y_pred_class = split[1].flatten()
+
+
+    mcc = matthews_corrcoef(y_pred_class, y_class)
+    print(f"MIX MCC: {mcc}")
+    mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_reg)
+    results_transfer_strut_mcc.append(mcc)
+    results_transfer_strut_mcc.append(mae)
+    print(f"MIX MAE: {mae}")
+    
+    
 
     # -----------------------------------------
     # TRANSFER LEARNING
@@ -151,9 +171,9 @@ for fold in range(5):
                     sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
                     tree_weights='wma', silhouette_score_file=silhouette_score_file, distance_measure='', cluster_assignment_file=cluster_assignment_file,
                     draw_graph=False, graph_path=output_dir,
-                    silhouette_score_train_file=silhouette_score_train_file,  X_target_train=Xt_train, y_target_train=yt_train, loss_wma_regression='abs',
+                    silhouette_score_train_file=silhouette_score_train_file, loss_wma_regression='abs', X_target_train=Xt_train, y_target_train=yt_train,
                     loss_wma_classification='cost_sensitive',
-                    beta=0.2, labda_wma=0.5, tree_weight_file=tree_weight_file)
+                    beta=0.2, labda_wma=0.5, tree_weight_file=tree_weight_file, fine_tune_strategy='mix')
 
     rf_tl.fit()                # Pretrain
     preds = rf_tl.predict(Xt_test)
@@ -163,11 +183,25 @@ for fold in range(5):
 
 
     mcc = matthews_corrcoef(y_pred_class, y_class)
-    print(f"Transfer MCC: {mcc}")
+    print(f"WMA MCC: {mcc}")
     mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_reg)
-    results_transfer_mcc.append(mcc)
-    results_transfer_mae.append(mae)
-    print(f"Transfer MAE: {mae}")
+    results_wma_mcc.append(mcc)
+    results_wma_mae.append(mae)
+    print(f"WMA MAE: {mae}")
+    
+    rf_tl.fine_tune(Xt_train, yt_train)
+    preds = rf_tl.predict(Xt_test)
+    split = np.hsplit(preds, 2)
+    y_pred_reg = split[0].flatten()
+    y_pred_class = split[1].flatten()
+
+
+    mcc = matthews_corrcoef(y_pred_class, y_class)
+    print(f"WMA + MIX MCC: {mcc}")
+    mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_reg)
+    results_strut_wma_mcc.append(mcc)
+    results_strut_wma_mae.append(mae)
+    print(f"WMA + MIX MAE: {mae}")
 
 
     '''mcc = matthews_corrcoef(y_pred_class, y_pred_class_src)
@@ -178,7 +212,12 @@ for fold in range(5):
 print("\n====================== FINAL RESULTS ======================")
 print("Target-only MCC: mean=%.4f" % np.mean(results_target_mcc))
 print("Source-only MCC: mean=%.4f" % np.mean(results_source_mcc))
-print("Transfer MCC:    mean=%.4f" % np.mean(results_transfer_mcc))
+print("STRUT MCC:    mean=%.4f" % np.mean(results_transfer_strut_mcc))
+print("STRUT + WMA MCC:    mean=%.4f" % np.mean(results_strut_wma_mcc))
+print("WMA MCC:    mean=%.4f\n\n" % np.mean(results_wma_mcc))
+
 print("Target-only MAE: mean=%.4f" % np.mean(results_target_mae))
 print("Source-only MAE: mean=%.4f" % np.mean(results_source_mae))
-print("Transfer MAE:    mean=%.4f" % np.mean(results_transfer_mae))
+print("STRUT MAE:    mean=%.4f" % np.mean(results_transfer_strut_mae))
+print("STRUT + WMA MAE:    mean=%.4f" % np.mean(results_strut_wma_mae))
+print("WMA MAE:    mean=%.4f" % np.mean(results_wma_mae))
