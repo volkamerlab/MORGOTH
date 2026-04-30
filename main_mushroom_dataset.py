@@ -6,6 +6,31 @@ from sklearn.metrics import matthews_corrcoef
 from morgoth import MORGOTH
 import warnings
 warnings.filterwarnings("ignore")
+import matplotlib.pyplot as plt
+
+
+def plot_mcc_boxplot(mcc1, mcc2, mcc3, labels=None):
+
+    if labels is None:
+        labels = ["Src", "Tgt", "Bias"]
+
+    data = [mcc1, mcc2, mcc3]
+
+    # Sanity check
+    for i, d in enumerate(data):
+        if len(d) == 0:
+            raise ValueError(f"MCC list {i+1} is empty!")
+
+    plt.figure(figsize=(6, 4))
+    plt.boxplot(data, labels=labels)
+    plt.ylabel("Matthews Correlation Coefficient (MCC)")
+    plt.title("Mushroom Dataset")
+    plt.grid(axis="y")
+
+    plt.tight_layout()
+    plt.savefig("mushroom_dataset.png")
+    plt.show()
+
 
 df = pd.read_csv("Example_Data/Mushroom/mushrooms_with_headers.csv")
 
@@ -95,7 +120,7 @@ for fold, (test_idx, train_idx) in enumerate(kf.split(Xt, yt), 1):
     mcc = matthews_corrcoef(yt_test, preds)
     print("Target-only MCC:", mcc)
     results_target.append(mcc)
-
+    rf_tgt = None
     # -----------------------------------------
     # SOURCE ONLY
     # -----------------------------------------
@@ -119,13 +144,14 @@ for fold, (test_idx, train_idx) in enumerate(kf.split(Xt, yt), 1):
                     beta=0.2, labda_wma=1)
 
     rf_tl.fit()                # Pretrain
-    preds = rf_tl.predict_proba(Xt_test)
     preds = rf_tl.predict(Xt_test)
     mcc = matthews_corrcoef(yt_test, preds)
     print("Transfer MCC:", mcc)
     results_transfer.append(mcc)
+    rf_tl = None
 
 print("\n====================== FINAL RESULTS ======================")
 print("Target-only MCC: mean=%.4f" % np.mean(results_target))
 print("Source-only MCC: mean=%.4f" % np.mean(results_source))
 print("Transfer MCC:    mean=%.4f" % np.mean(results_transfer))
+plot_mcc_boxplot(results_target, results_source, results_transfer)

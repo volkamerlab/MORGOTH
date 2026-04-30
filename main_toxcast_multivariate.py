@@ -6,6 +6,29 @@ from sklearn.metrics import matthews_corrcoef, r2_score, mean_absolute_error
 from morgoth import MORGOTH
 import warnings
 warnings.filterwarnings("ignore")
+import matplotlib.pyplot as plt
+
+def plot_mcc_boxplot(mcc1, mcc2, mcc3, mcc4, mcc5, labels=None, ylabel = 'Matthews Correlation Coefficient (MCC)', filename = "toxcast_mcc.png"):
+
+    if labels is None:
+        labels = ["Src", "Tgt", "Bias", "STRUT", "SER"]
+
+    data = [mcc1, mcc2, mcc3, mcc4, mcc5]
+
+    # Sanity check
+    for i, d in enumerate(data):
+        if len(d) == 0:
+            raise ValueError(f"MCC list {i+1} is empty!")
+
+    plt.figure(figsize=(6, 4))
+    plt.boxplot(data, labels=labels)
+    plt.ylabel(ylabel)
+    plt.title("ToxCast Dataset")
+    plt.grid(axis="y")
+
+    plt.tight_layout()
+    plt.savefig(filename)
+
 
 
 
@@ -72,12 +95,13 @@ tree_weight_file = f'{output_dir}/Tree_Weights_Wine_Classification.txt'
 results_target_mcc = []
 results_source_mcc = []
 results_transfer_strut_mcc = []
-results_strut_wma_mcc = []
+results_transfer_ser_mcc = []
 results_wma_mcc = []
+
 results_target_mae = []
 results_source_mae = []
 results_transfer_strut_mae = []
-results_strut_wma_mae = []
+results_transfer_ser_mae = []
 results_wma_mae = []
 
 for fold in range(5):
@@ -119,6 +143,7 @@ for fold in range(5):
     results_target_mcc.append(mcc)
     results_target_mae.append(mae)
     print(f"Target-only MAE: {mae}")
+    rf_tgt = None
     # -----------------------------------------
     # SOURCE ONLY
     # -----------------------------------------
@@ -130,7 +155,7 @@ for fold in range(5):
                     sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
                     tree_weights=None, silhouette_score_file=silhouette_score_file, distance_measure='', cluster_assignment_file=cluster_assignment_file,
                     draw_graph=False, graph_path=output_dir,
-                    silhouette_score_train_file=silhouette_score_train_file, fine_tune_strategy='mix')
+                    silhouette_score_train_file=silhouette_score_train_file, fine_tune_strategy='strut')
     rf_source.fit()
     preds = rf_source.predict(Xt_test)
     split = np.hsplit(preds, 2)
@@ -156,10 +181,40 @@ for fold in range(5):
     print(f"MIX MCC: {mcc}")
     mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_reg)
     results_transfer_strut_mcc.append(mcc)
-    results_transfer_strut_mcc.append(mae)
+    results_transfer_strut_mae.append(mae)
     print(f"MIX MAE: {mae}")
     
+    rf_source = None
+
+
+    rf_source = MORGOTH(X_train=Xs.loc[:, features], y_train=ys.values, sample_names_train=Xs.index, threshold=[0.9],
+                    criterion_class='gini', criterion_reg='mse', min_number_of_samples_per_leaf=10, number_of_trees_in_forest=50, analysis_name='source_only',
+                    number_of_features_per_split='sqrt', class_names=[0, 1], output_format='multioutput', time_file=time_file,
+                    sample_weights_included='simple', random_state=seed, max_depth=20, impact_classification=1,
+                    sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
+                    tree_weights=None, silhouette_score_file=silhouette_score_file, distance_measure='', cluster_assignment_file=cluster_assignment_file,
+                    draw_graph=False, graph_path=output_dir,
+                    silhouette_score_train_file=silhouette_score_train_file, fine_tune_strategy='ser')
+    rf_source.fit()
+    preds = rf_source.predict(Xt_test)
+    split = np.hsplit(preds, 2)
+    y_pred_reg_src = split[0].flatten()
+    y_pred_class_src = split[1].flatten()
     
+    rf_source.fine_tune(Xt_train, yt_train)
+    preds = rf_source.predict(Xt_test)
+    split = np.hsplit(preds, 2)
+    y_pred_reg = split[0].flatten()
+    y_pred_class = split[1].flatten()
+
+    mcc = matthews_corrcoef(y_pred_class, y_class)
+    print(f"MIX MCC: {mcc}")
+    mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_reg)
+    results_transfer_ser_mcc.append(mcc)
+    results_transfer_ser_mae.append(mae)
+    print(f"MIX MAE: {mae}")
+    
+    rf_source = None
 
     # -----------------------------------------
     # TRANSFER LEARNING
@@ -189,21 +244,8 @@ for fold in range(5):
     results_wma_mae.append(mae)
     print(f"WMA MAE: {mae}")
     
-    rf_tl.fine_tune(Xt_train, yt_train)
-    preds = rf_tl.predict(Xt_test)
-    split = np.hsplit(preds, 2)
-    y_pred_reg = split[0].flatten()
-    y_pred_class = split[1].flatten()
 
-
-    mcc = matthews_corrcoef(y_pred_class, y_class)
-    print(f"WMA + MIX MCC: {mcc}")
-    mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_reg)
-    results_strut_wma_mcc.append(mcc)
-    results_strut_wma_mae.append(mae)
-    print(f"WMA + MIX MAE: {mae}")
-
-
+    rf_tl = None
     '''mcc = matthews_corrcoef(y_pred_class, y_pred_class_src)
     print(f"Transfer MCC vs Source: {mcc}")
     mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_pred_reg_src)
@@ -213,11 +255,14 @@ print("\n====================== FINAL RESULTS ======================")
 print("Target-only MCC: mean=%.4f" % np.mean(results_target_mcc))
 print("Source-only MCC: mean=%.4f" % np.mean(results_source_mcc))
 print("STRUT MCC:    mean=%.4f" % np.mean(results_transfer_strut_mcc))
-print("STRUT + WMA MCC:    mean=%.4f" % np.mean(results_strut_wma_mcc))
+print("SER MCC:    mean=%.4f" % np.mean(results_transfer_ser_mcc))
 print("WMA MCC:    mean=%.4f\n\n" % np.mean(results_wma_mcc))
 
 print("Target-only MAE: mean=%.4f" % np.mean(results_target_mae))
 print("Source-only MAE: mean=%.4f" % np.mean(results_source_mae))
 print("STRUT MAE:    mean=%.4f" % np.mean(results_transfer_strut_mae))
-print("STRUT + WMA MAE:    mean=%.4f" % np.mean(results_strut_wma_mae))
+print("SER MAE:    mean=%.4f" % np.mean(results_transfer_ser_mae))
 print("WMA MAE:    mean=%.4f" % np.mean(results_wma_mae))
+
+plot_mcc_boxplot(results_target_mcc, results_source_mcc, results_wma_mcc, results_transfer_strut_mcc, results_transfer_ser_mcc)
+plot_mcc_boxplot(results_target_mae, results_source_mae, results_wma_mae, results_transfer_strut_mae, results_transfer_ser_mae, filename='toxcast_mae.png', ylabel='Mean Absolute Deviation (MAE)')
