@@ -89,13 +89,15 @@ class MORGOTH:
             @param tree_weight_file: file where the tree weights should be stored
             @param fine_tune_strategy: string indicating if/how new trees should be added, available: strut, ser, mix, strut_all, ser_all, mix_all
         '''
-        self.original_Xtrain = copy.deepcopy(X_train)
-        self.original_ytrain = copy.deepcopy(y_train)
-        self.original_sample_names_train = copy.deepcopy(sample_names_train)
+        self.original_Xtrain = X_train.copy(deep = False)
+        self.original_ytrain = np.array(y_train)
+        self.original_sample_names_train = np.array(sample_names_train)
         self.X_train = X_train.reset_index(drop=True)
         self.feature_names = np.array(self.X_train.columns)
-
-        self.X_target_train = copy.deepcopy(X_target_train)
+        if not X_target_train is None:
+            self.X_target_train = X_target_train.copy(deep = False)
+        else:
+            self.X_target_train = X_target_train
         self.y_target_train = np.array(y_target_train)
         self.beta = beta
         self.lambda_wma = labda_wma
@@ -271,7 +273,7 @@ class MORGOTH:
             return 
         
     def ser(self, X_target, y_target, sample_weights) -> np.array:
-        tree_list_copy = copy.deepcopy(self.trees)
+        tree_list_copy =self.trees
 
 
         new_trees = []
@@ -287,7 +289,7 @@ class MORGOTH:
         return np.array(new_trees)
     
     def strut(self, X_target, y_target, sample_weights) -> list:
-        tree_list_copy = copy.deepcopy(self.trees)
+        tree_list_copy = self.trees
 
         new_trees = []
         with Pool() as pool:
@@ -576,7 +578,20 @@ class MORGOTH:
         end_time = time.perf_counter()
         return forest_predictions_reg
 
+    def _collect_tree_predictions_with_trees(self, X_test):
+        """
+        Returns:
+            trees: list[Tree]
+            preds: ndarray (n_trees, n_samples)
+        """
+        X = X_test.values
 
+        preds = np.asarray(
+            [tree.predict(X)[0] for tree in self.trees],
+            dtype=np.float32
+        )
+
+        return preds
 
     def calculate_weights(self, threshold: 'list[float]', response_values: np.array, weighting_scheme: str) -> np.array:
         '''
@@ -974,7 +989,7 @@ class MORGOTH:
             distance = False
         else:
             distance = True
-        normalized_X_train = copy.deepcopy(self.X_train)
+        normalized_X_train = self.X_train.copy(deep = False)
         normalized_X_train.index = self.sample_names_train
         # min max normalization
         for column in normalized_X_train.columns:
@@ -1023,7 +1038,7 @@ class MORGOTH:
             return
 
         # min max normalization
-        normalized_Xtrain = copy.deepcopy(self.original_Xtrain)
+        normalized_Xtrain = self.original_Xtrain.copy(deep = False)
         normalized_Xtrain.index = self.sample_names_train
 
         for column in normalized_Xtrain.columns:

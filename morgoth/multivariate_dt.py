@@ -1016,7 +1016,7 @@ class MultivariateDecisionTree:
                                  1.0, abs_tol=10**-2))
         self.leaves = np.array(self.leaves)
 
-    def predict(self, samples: pd.DataFrame) -> list:
+    def predict(self, samples: pd.DataFrame) -> np.array:
         '''
             calculates a prediction for given samples
 
@@ -1042,7 +1042,7 @@ class MultivariateDecisionTree:
                 self.train_samples_names_in_leaf[test_sample] = leaf.sample_names_train
         if None in predictions:
             print('none in predictions')
-        return predictions, self
+        return np.asarray(predictions), self
 
     def update_depth(self) -> None:
         '''

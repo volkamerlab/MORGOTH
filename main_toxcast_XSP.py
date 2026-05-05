@@ -1,0 +1,265 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import KFold
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import matthews_corrcoef, r2_score, mean_absolute_error
+from morgoth import MORGOTH
+import warnings
+warnings.filterwarnings("ignore")
+import matplotlib.pyplot as plt
+
+def plot_mcc_boxplot(mcc1, mcc2, mcc3, mcc4, mcc5, labels=None, ylabel = 'Matthews Correlation Coefficient (MCC)', filename = "toxcast_mcc.png"):
+
+    if labels is None:
+        labels = ["Tgt", "Src", "Bias", "STRUT", "SER"]
+
+    data = [mcc1, mcc2, mcc3, mcc4, mcc5]
+
+    # Sanity check
+    for i, d in enumerate(data):
+        if len(d) == 0:
+            raise ValueError(f"MCC list {i+1} is empty!")
+
+    plt.figure(figsize=(6, 4))
+    plt.boxplot(data, labels=labels)
+    plt.ylabel(ylabel)
+    plt.title("ToxCast Dataset")
+    plt.grid(axis="y")
+
+    plt.tight_layout()
+    plt.savefig(filename)
+
+
+def prepare_xy(features:pd.DataFrame, d:pd.DataFrame):
+    intersection_compounds = sorted(set(features.index).intersection(set(d.index)))
+    X = features.loc[intersection_compounds, :]
+    d['HIT CALL'] = d.apply(lambda x: 1 if x['HIT CALL'] == 'Active' else 0, axis=1)
+    y = d.loc[intersection_compounds, ['CONTINUOUS HIT CALL', 'HIT CALL']]
+    y_reg = d.loc[intersection_compounds, 'CONTINUOUS HIT CALL']
+    y_class = d.loc[intersection_compounds, 'HIT CALL']
+    return X, y, y_reg, y_class
+
+
+assays = ['ATG_hERa_XSP1', 'ATG_hERa_XSP2']
+for assay in assays:
+    # Split into SOURCE and TARGET by stalk-shape
+    # There are two stalk-shape values: "e" and "t"
+    target_df = pd.read_csv(f'Example_Data/ToxCastERa/{assay}.csv', sep = ',', index_col=0)
+    source_df = pd.read_csv('Example_Data/ToxCastERa/TOX21_ERa_BLA_Agonist_ratio-2026-04-08.csv', sep = ',', index_col=0)
+    properties = pd.read_csv('Example_Data/ToxCastERa/physchem_properties.csv', sep = '\t', index_col=0)
+    split_map = pd.read_csv(f'Example_Data/ToxCastERa/{assay}_split_map.tsv', sep = '\t')
+
+    Xs_raw, ys, _ , _= prepare_xy(d = source_df, features=properties)
+    Xt_raw, yt, y_reg_true, y_class_true = prepare_xy(d = target_df, features=properties)
+
+
+
+
+
+    # Use a LabelEncoder PER COLUMN, trained on combined source+target
+    X_all = pd.concat([Xs_raw, Xt_raw], axis=0)
+
+    encoders = {}
+    for col in X_all.columns:
+        le = LabelEncoder()
+        le.fit(X_all[col])
+        encoders[col] = le
+        Xs_raw[col] = le.transform(Xs_raw[col])
+        Xt_raw[col] = le.transform(Xt_raw[col])
+
+    Xs = Xs_raw.astype(int)
+    Xt = Xt_raw.astype(int)
+
+
+    seed = 42
+    # change to your input data directory
+    input_dir = 'Example_Data/'
+    # change to your output data directory
+    output_dir = 'Example_Data/output/'
+    # full feature matrix
+
+    # create output_files
+    time_file = f'{output_dir}/ElapsedTimeFitting.txt'
+    sample_info_file = f'{output_dir}/Additional_Sample_Information.txt'
+    leaf_assignment_file_train = f'{output_dir}/Training_Set_LeafAssignment.txt'
+    feature_imp_output_file = f'{output_dir}/Feature_Importance.txt'
+    silhouette_score_file = f'{output_dir}/Silhouette_Score.txt'
+    silhouette_score_train_file = f'{output_dir}Silhouette_Score_Train.txt'
+    cluster_assignment_file = f'{output_dir}/Cluster_Assignment.txt'
+    tree_weight_file = f'{output_dir}/Tree_Weights_Wine_Classification.txt'
+    # rf only trained on the source dataset
+
+
+
+    # Segev et al say they train on 5% of the target for their baseline
+    results_target_mcc = []
+    results_source_mcc = []
+    results_transfer_strut_mcc = []
+    results_transfer_ser_mcc = []
+    results_wma_mcc = []
+
+    results_target_mae = []
+    results_source_mae = []
+    results_transfer_strut_mae = []
+    results_transfer_ser_mae = []
+    results_wma_mae = []
+
+    for fold in range(5):
+        
+        test_samples = split.loc[split['cv_fold'] == f'fold{fold}', 'DTXSID'].values
+        train_samples = split.loc[split['cv_fold'] != f'fold{fold}', 'DTXSID'].values
+
+        print(f"\n--- Fold {fold} ---")
+        features = Xs.columns.to_numpy()
+        Xt_train, Xt_test = Xt.loc[train_samples, features], Xt.loc[test_samples, features]
+        yt_train, yt_test = yt.loc[train_samples, :].values, yt.loc[test_samples, :].values
+        y_reg = y_reg_true[test_samples]
+        y_class = y_class_true[test_samples]
+        # -----------------------------------------
+        # TARGET ONLY
+        # -----------------------------------------
+        rf_tgt = MORGOTH(X_train=Xt_train, y_train=yt_train, sample_names_train=Xt_train.index, threshold=[0.9],
+                        criterion_class='gini', criterion_reg='mse', min_number_of_samples_per_leaf=10, number_of_trees_in_forest=50, analysis_name=f'target_only_fold_{fold}',
+                        number_of_features_per_split='sqrt', class_names=[0,1], output_format='multioutput', time_file=time_file,
+                        sample_weights_included='', random_state=seed, max_depth=20, impact_classification=1,
+                        sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
+                        tree_weights=None, silhouette_score_file=silhouette_score_file, distance_measure='', cluster_assignment_file=cluster_assignment_file,
+                        draw_graph=False, graph_path=output_dir,
+                        silhouette_score_train_file=silhouette_score_train_file)
+
+        rf_tgt.fit()
+        preds = rf_tgt.predict(Xt_test)
+        split = np.hsplit(preds, 2)
+        y_pred_reg = split[0].flatten()
+        y_pred_class = split[1].flatten()
+
+        
+        mcc = matthews_corrcoef(y_pred_class, y_class)
+        print(f"Target-only MCC: {mcc}")
+        mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_reg)
+        results_target_mcc.append(mcc)
+        results_target_mae.append(mae)
+        print(f"Target-only MAE: {mae}")
+        rf_tgt = None
+        # -----------------------------------------
+        # SOURCE ONLY
+        # -----------------------------------------
+
+        rf_source = MORGOTH(X_train=Xs.loc[:, features], y_train=ys.values, sample_names_train=Xs.index, threshold=[0.9],
+                        criterion_class='gini', criterion_reg='mse', min_number_of_samples_per_leaf=10, number_of_trees_in_forest=50, analysis_name='source_only',
+                        number_of_features_per_split='sqrt', class_names=[0, 1], output_format='multioutput', time_file=time_file,
+                        sample_weights_included='simple', random_state=seed, max_depth=20, impact_classification=1,
+                        sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
+                        tree_weights=None, silhouette_score_file=silhouette_score_file, distance_measure='', cluster_assignment_file=cluster_assignment_file,
+                        draw_graph=False, graph_path=output_dir,
+                        silhouette_score_train_file=silhouette_score_train_file, fine_tune_strategy='strut')
+        rf_source.fit()
+        preds = rf_source.predict(Xt_test)
+        split = np.hsplit(preds, 2)
+        y_pred_reg_src = split[0].flatten()
+        y_pred_class_src = split[1].flatten()
+
+
+        mcc = matthews_corrcoef(y_pred_class_src, y_class)
+        print(f"Source-only MCC: {mcc}")
+        mae = mean_absolute_error(y_pred=y_pred_reg_src, y_true=y_reg)
+        results_source_mcc.append(mcc)
+        results_source_mae.append(mae)
+        print(f"Source-only MAE: {mae}")
+        
+        rf_source.fine_tune(Xt_train, yt_train)
+        preds = rf_source.predict(Xt_test)
+        split = np.hsplit(preds, 2)
+        y_pred_reg = split[0].flatten()
+        y_pred_class = split[1].flatten()
+
+
+        mcc = matthews_corrcoef(y_pred_class, y_class)
+        print(f"MIX MCC: {mcc}")
+        mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_reg)
+        results_transfer_strut_mcc.append(mcc)
+        results_transfer_strut_mae.append(mae)
+        print(f"MIX MAE: {mae}")
+        
+        rf_source = None
+
+
+        rf_source = MORGOTH(X_train=Xs.loc[:, features], y_train=ys.values, sample_names_train=Xs.index, threshold=[0.9],
+                        criterion_class='gini', criterion_reg='mse', min_number_of_samples_per_leaf=10, number_of_trees_in_forest=50, analysis_name='source_only',
+                        number_of_features_per_split='sqrt', class_names=[0, 1], output_format='multioutput', time_file=time_file,
+                        sample_weights_included='simple', random_state=seed, max_depth=20, impact_classification=1,
+                        sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
+                        tree_weights=None, silhouette_score_file=silhouette_score_file, distance_measure='', cluster_assignment_file=cluster_assignment_file,
+                        draw_graph=False, graph_path=output_dir,
+                        silhouette_score_train_file=silhouette_score_train_file, fine_tune_strategy='ser')
+        rf_source.fit()
+        preds = rf_source.predict(Xt_test)
+        split = np.hsplit(preds, 2)
+        y_pred_reg_src = split[0].flatten()
+        y_pred_class_src = split[1].flatten()
+        
+        rf_source.fine_tune(Xt_train, yt_train)
+        preds = rf_source.predict(Xt_test)
+        split = np.hsplit(preds, 2)
+        y_pred_reg = split[0].flatten()
+        y_pred_class = split[1].flatten()
+
+        mcc = matthews_corrcoef(y_pred_class, y_class)
+        print(f"MIX MCC: {mcc}")
+        mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_reg)
+        results_transfer_ser_mcc.append(mcc)
+        results_transfer_ser_mae.append(mae)
+        print(f"MIX MAE: {mae}")
+        
+        rf_source = None
+
+        # -----------------------------------------
+        # TRANSFER LEARNING
+        # -----------------------------------------
+        rf_tl = MORGOTH(X_train=Xs.loc[:, features], y_train=ys.values, sample_names_train=Xs.index, threshold=[0.9],
+                        criterion_class='gini', criterion_reg='mse', min_number_of_samples_per_leaf=10, number_of_trees_in_forest=50, analysis_name=f'target_only_fold_{fold}',
+                        number_of_features_per_split='sqrt', class_names=[0,1], output_format='multioutput', time_file=time_file,
+                        sample_weights_included='simple', random_state=seed, max_depth=20, impact_classification=1,
+                        sample_info_file=sample_info_file, leaf_assignment_file_train=leaf_assignment_file_train, feature_imp_output_file=feature_imp_output_file,
+                        tree_weights='wma', silhouette_score_file=silhouette_score_file, distance_measure='', cluster_assignment_file=cluster_assignment_file,
+                        draw_graph=False, graph_path=output_dir,
+                        silhouette_score_train_file=silhouette_score_train_file, loss_wma_regression='abs', X_target_train=Xt_train, y_target_train=yt_train,
+                        loss_wma_classification='cost_sensitive',
+                        beta=0.2, labda_wma=0.5, tree_weight_file=tree_weight_file, fine_tune_strategy='mix')
+
+        rf_tl.fit()                # Pretrain
+        preds = rf_tl.predict(Xt_test)
+        split = np.hsplit(preds, 2)
+        y_pred_reg = split[0].flatten()
+        y_pred_class = split[1].flatten()
+
+
+        mcc = matthews_corrcoef(y_pred_class, y_class)
+        print(f"WMA MCC: {mcc}")
+        mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_reg)
+        results_wma_mcc.append(mcc)
+        results_wma_mae.append(mae)
+        print(f"WMA MAE: {mae}")
+        
+
+        rf_tl = None
+        '''mcc = matthews_corrcoef(y_pred_class, y_pred_class_src)
+        print(f"Transfer MCC vs Source: {mcc}")
+        mae = mean_absolute_error(y_pred=y_pred_reg, y_true=y_pred_reg_src)
+        print(f"Transfer MAE vs Source: {mae}")'''
+
+    print("\n====================== FINAL RESULTS ======================")
+    print("Target-only MCC: mean=%.4f" % np.mean(results_target_mcc))
+    print("Source-only MCC: mean=%.4f" % np.mean(results_source_mcc))
+    print("STRUT MCC:    mean=%.4f" % np.mean(results_transfer_strut_mcc))
+    print("SER MCC:    mean=%.4f" % np.mean(results_transfer_ser_mcc))
+    print("WMA MCC:    mean=%.4f\n\n" % np.mean(results_wma_mcc))
+
+    print("Target-only MAE: mean=%.4f" % np.mean(results_target_mae))
+    print("Source-only MAE: mean=%.4f" % np.mean(results_source_mae))
+    print("STRUT MAE:    mean=%.4f" % np.mean(results_transfer_strut_mae))
+    print("SER MAE:    mean=%.4f" % np.mean(results_transfer_ser_mae))
+    print("WMA MAE:    mean=%.4f" % np.mean(results_wma_mae))
+
+    plot_mcc_boxplot(results_target_mcc, results_source_mcc, results_wma_mcc, results_transfer_strut_mcc, results_transfer_ser_mcc, filename=f'toxcast_{assay}_mcc.png')
+    plot_mcc_boxplot(results_target_mae, results_source_mae, results_wma_mae, results_transfer_strut_mae, results_transfer_ser_mae, filename=f'toxcast_{assay}_mae.png', ylabel='Mean Absolute Deviation (MAE)')
