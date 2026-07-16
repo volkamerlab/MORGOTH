@@ -461,14 +461,15 @@ class BinaryTreeNode:
         thresholds = self.X_train.loc[:, feature_name]
         sorted_values = np.sort(np.unique(thresholds.values.tolist()))
 
-        considered_values = sorted_values[min_number_of_samples_per_leaf-1:len(
-            sorted_values)-(min_number_of_samples_per_leaf-1)]
+        considered_values = sorted_values
+
         for i, val in enumerate(considered_values):
             if i+1 == len(considered_values):
-                break
-            # we can ignore all options where definetly less than the minimal number of samples would end up in the same leaf
+                continue
             split = Split(feature_name=feature_name,
                           threshold=np.mean([val, considered_values[i+1]]))
+
+            left, right = split.calculate_left_right(X=self.X_train)
 
             left, right = split.calculate_left_right(X=self.X_train)
 
