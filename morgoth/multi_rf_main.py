@@ -188,7 +188,11 @@ def perform_multi_prediction(json_dict: json.JSONDecoder):
     '''
     training_samples_file = json_dict["tr_matrix_file"]
     test_samples_file = json_dict["te_matrix_file"]
-    if json_dict['conformal_prediction'] in ['true', 'True']:
+    # the calibration set is needed for conformal prediction and also when
+    # test and calibration set are swapped (prediction on the calibration set)
+    use_calibration = json_dict['conformal_prediction'] in ['true', 'True'] or \
+        json_dict['swap_test_calibration'] in ['true', 'True']
+    if use_calibration:
         calibration_samples_file = json_dict["cal_matrix_file"]
     classification_matrix_file = json_dict["cl_matrix_file"]
     gene_expression_matrix_file = json_dict["ge_matrix_file"]
@@ -199,7 +203,7 @@ def perform_multi_prediction(json_dict: json.JSONDecoder):
     training_samples_and_drug_response_values = read_drug_file(
         training_samples_file)
     test_samples_and_drug_response_values = read_drug_file(test_samples_file)
-    if json_dict['conformal_prediction'] in ['true', 'True']:
+    if use_calibration:
         calibration_samples_and_drug_response_values = read_drug_file(
             calibration_samples_file)
 
@@ -217,10 +221,10 @@ def perform_multi_prediction(json_dict: json.JSONDecoder):
 
     samples_names_train = training_samples_and_drug_response_values[0]
     samples_names_test = test_samples_and_drug_response_values[0]
-    if json_dict['conformal_prediction'] in ['true', 'True']:
+    if use_calibration:
         samples_names_calibration = calibration_samples_and_drug_response_values[0]
 
-    if json_dict['conformal_prediction'] in ['true', 'True']:
+    if use_calibration:
         classifications_training_testing_calibration = split_classification_file(
             training_samples=samples_names_train, test_samples=samples_names_test, calibration_samples=samples_names_calibration, classification_matrix=classification_dataframe)
     else:
@@ -232,7 +236,7 @@ def perform_multi_prediction(json_dict: json.JSONDecoder):
     wanted_feature_names_and_filtered_gene_expression_matrix_dict = filter_gene_expression_features(
         wanted_genes, gene_expression_matrix_data_frame)
     filtered_gene_expression_matrix_dict = wanted_feature_names_and_filtered_gene_expression_matrix_dict
-    if json_dict['conformal_prediction'] in ['true', 'True']:
+    if use_calibration:
         gene_expression_training_testing_calibration = split_gene_expression_matrix(
             gene_expression_matrix=filtered_gene_expression_matrix_dict, training_samples=samples_names_train, test_samples=samples_names_test, calibration_samples=samples_names_calibration)
     else:
@@ -241,7 +245,7 @@ def perform_multi_prediction(json_dict: json.JSONDecoder):
 
     X_train = gene_expression_training_testing_calibration[0]
     X_test = gene_expression_training_testing_calibration[1]
-    if json_dict['conformal_prediction'] in ['true', 'True']:
+    if use_calibration:
         X_cal = gene_expression_training_testing_calibration[2]
 
     y_train_reg = training_samples_and_drug_response_values[1]
@@ -257,7 +261,7 @@ def perform_multi_prediction(json_dict: json.JSONDecoder):
     y_test = np.array([[y_test_reg.loc[y_test_reg['sample'] == sample, 'response'].values[0], int(
         y_disc_test.loc[y_disc_test['sample'] == sample, 'class'].values[0])] for sample in samples_names_test])
 
-    if json_dict['conformal_prediction'] in ['true', 'True']:
+    if use_calibration:
         y_cal_reg = calibration_samples_and_drug_response_values[1]
         y_disc_cal = classifications_training_testing_calibration[2]
         y_cal = np.array([[y_cal_reg.loc[y_cal_reg['sample'] == sample, 'response'].values[0], int(
